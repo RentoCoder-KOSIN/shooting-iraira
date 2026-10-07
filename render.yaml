@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: irritating-game
+    runtime: static
+    staticPublishPath: .
