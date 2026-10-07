@@ -31,10 +31,91 @@
                 -webkit-user-select: none;
                 -webkit-tap-highlight-color: transparent;
             }
+            /* admin overlay (DOM, not canvas, so we can use a real password input) */
+            #admin {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background: rgba(0, 0, 0, 0.65);
+                z-index: 10;
+            }
+            #admin[hidden],
+            #admin [hidden] {
+                display: none;
+            }
+            .admin-box {
+                width: min(320px, 86vw);
+                padding: 20px;
+                background: #14142a;
+                border: 1px solid #6af;
+                border-radius: 8px;
+                color: #fff;
+                font-size: 15px;
+            }
+            .admin-box h2 {
+                margin: 0 0 14px;
+                font-size: 18px;
+                color: #6af;
+            }
+            .admin-box input[type="password"] {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 8px;
+                font-size: 16px;
+                background: #0b0b14;
+                color: #fff;
+                border: 1px solid #556;
+                border-radius: 4px;
+            }
+            .admin-box button {
+                margin-top: 12px;
+                margin-right: 8px;
+                padding: 8px 14px;
+                font-size: 14px;
+                color: #012;
+                background: #6af;
+                border: 0;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            .admin-box button.sub {
+                color: #ccd;
+                background: #334;
+            }
+            .admin-box label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+            }
+            #admin-msg {
+                min-height: 1.2em;
+                margin: 8px 0 0;
+                font-size: 13px;
+                color: #f77;
+            }
         </style>
     </head>
     <body>
         <canvas id="c" width="480" height="640"></canvas>
+        <div id="admin" hidden>
+            <div class="admin-box" role="dialog" aria-modal="true" aria-label="admin">
+                <div id="admin-login">
+                    <h2>ADMIN</h2>
+                    <input id="admin-pass" type="password" autocomplete="off" placeholder="password" />
+                    <p id="admin-msg"></p>
+                    <button id="admin-ok">ログイン</button>
+                    <button class="sub" data-close>閉じる</button>
+                </div>
+                <div id="admin-panel" hidden>
+                    <h2>ADMIN PANEL</h2>
+                    <label><input type="checkbox" id="admin-inv" /> 無敵モード</label>
+                    <button class="sub" data-close>閉じる (Esc)</button>
+                </div>
+            </div>
+        </div>
         <script>
             "use strict";
 
@@ -176,6 +257,65 @@
              * ===================================================================== */
             const keys = {};
 
+            /* ---- admin mode (Shift+@ to open) ----
+             * NOTE: this password lives in the client code, so anyone who views the source can read it.
+             * It is a gate for fun, not real security. */
+            const ADMIN_PASSWORD = "mint";
+            let adminOpen = false; // while true the game is paused and keys go to the panel
+            let adminAuthed = false; // stays true until the page is reloaded
+            let invincible = false; // admin: no damage
+
+            const adminEl = document.getElementById("admin");
+            const adminLogin = document.getElementById("admin-login");
+            const adminPanel = document.getElementById("admin-panel");
+            const adminPass = document.getElementById("admin-pass");
+            const adminMsg = document.getElementById("admin-msg");
+            const adminInv = document.getElementById("admin-inv");
+
+            // JIS keyboard: Shift+@ gives "`". US keyboard: Shift+2 gives "@".
+            const isAdminShortcut = (e) =>
+                e.shiftKey && (e.key === "@" || e.key === "`");
+
+            function showAdminView() {
+                adminLogin.hidden = adminAuthed;
+                adminPanel.hidden = !adminAuthed;
+                adminMsg.textContent = "";
+                adminPass.value = "";
+                adminInv.checked = invincible;
+                (adminAuthed ? adminInv : adminPass).focus();
+            }
+            function openAdmin() {
+                adminOpen = true;
+                for (const k in keys) delete keys[k]; // release held movement keys
+                adminEl.hidden = false;
+                showAdminView();
+            }
+            function closeAdmin() {
+                adminOpen = false;
+                adminEl.hidden = true;
+                if (document.activeElement) document.activeElement.blur();
+            }
+            function tryAdminLogin() {
+                if (adminPass.value === ADMIN_PASSWORD) {
+                    adminAuthed = true;
+                    showAdminView();
+                } else {
+                    adminMsg.textContent = "パスワードが違います";
+                    adminPass.value = "";
+                    adminPass.focus();
+                }
+            }
+            adminPass.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") tryAdminLogin();
+            });
+            document.getElementById("admin-ok").addEventListener("click", tryAdminLogin);
+            adminInv.addEventListener("change", () => {
+                invincible = adminInv.checked;
+            });
+            adminEl.querySelectorAll("[data-close]").forEach((b) =>
+                b.addEventListener("click", closeAdmin),
+            );
+
             function enterFullscreen() {
                 const el = document.documentElement;
                 const req = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -234,6 +374,15 @@
             }
 
             window.addEventListener("keydown", (e) => {
+                if (adminOpen) {
+                    if (e.key === "Escape") closeAdmin();
+                    return; // keys belong to the panel while it is open
+                }
+                if (isAdminShortcut(e)) {
+                    e.preventDefault();
+                    openAdmin();
+                    return;
+                }
                 keys[e.key.toLowerCase()] = true;
                 if (!e.repeat) {
                     if (e.key.toLowerCase() === "f") toggleFullscreen();
@@ -608,7 +757,7 @@
             }
 
             function hurtPlayer() {
-                if (player.inv > 0) return;
+                if (player.inv > 0 || invincible) return;
                 player.hp -= dmgMul;
                 player.inv = 60;
                 if (player.hp <= 0) {
@@ -800,6 +949,7 @@
             }
 
             function update() {
+                if (adminOpen) return; // paused while the admin panel is open
                 frame++;
                 if (keyDebug.t > 0) keyDebug.t--;
                 switch (state) {
@@ -943,6 +1093,8 @@
                     "#f66",
                     "left",
                 );
+                if (invincible)
+                    drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
             }
 
             function drawOverlay() {
