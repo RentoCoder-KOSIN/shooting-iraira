@@ -1,696 +1,1112 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>世界一イライラするゲーム</title>
-<style>
-:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
-html,body{height:100%;margin:0;background:#0b0b14}
-body{display:flex;justify-content:center;align-items:center;font-family:sans-serif}
-canvas{
-  width:min(100vw,75vh);width:min(100vw,75dvh);height:auto;aspect-ratio:3/4;
-  background:#10101c;cursor:pointer;touch-action:none;
-  user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent
-}
-</style>
-</head>
-<body>
-<canvas id="c" width="480" height="640"></canvas>
-<script>
-'use strict';
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
+        />
+        <title>世界一イライラするゲーム</title>
+        <style>
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+                background: #0b0b14;
+                overflow: hidden;
+            }
+            body {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                font-family: sans-serif;
+            }
+            canvas {
+                /* size is set from JS (layout) so it always fills the window */
+                display: block;
+                background: #10101c;
+                cursor: pointer;
+                touch-action: none;
+                user-select: none;
+                -webkit-user-select: none;
+                -webkit-tap-highlight-color: transparent;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="c" width="480" height="640"></canvas>
+        <script>
+            "use strict";
 
-/* =====================================================================
- *  定数・データ
- * ===================================================================== */
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-const W = 480, H = 640, PI = Math.PI;
-const STEP_MS = 16.67;                 // 固定タイムステップ(約60fps)
+            /* =====================================================================
+             *  定数・データ
+             * ===================================================================== */
+            const canvas = document.getElementById("c");
+            const ctx = canvas.getContext("2d");
+            // logical height is fixed; logical width follows the window aspect ratio
+            const H = 640,
+                MIN_W = 480,
+                MAX_W = 1280,
+                PI = Math.PI;
+            let W = MIN_W; // logical width (updated by layout())
+            let CX = W / 2; // horizontal center
+            const STEP_MS = 16.67; // 固定タイムステップ(約60fps)
 
-const PLAYER_MAX_HP = 8;
-const PLAYER_START = { x: 240, y: 580 };
-const BOSS_HP = [170, 220, 260, 340];  // 形態ごとのボスHP
-const FORM_NAMES = '一二三四';
+            const PLAYER_MAX_HP = 8;
+            const PLAYER_START = { x: 240, y: 580 }; // x is updated by layout()
+            const BOSS_HP = [170, 220, 260, 340]; // 形態ごとのボスHP
+            const FORM_NAMES = "一二三四";
 
-// 玉の種類(色の並び順と一致)
-const ORB = { NORMAL: 0, HEAL: 1, GAG: 2, DOUBLE: 3, FAKE: 4 };
-const ORB_COLORS = ['#f93', '#f33', '#39f', '#3c3', '#a4f'];
+            // 玉の種類(色の並び順と一致)
+            const ORB = { NORMAL: 0, HEAL: 1, GAG: 2, DOUBLE: 3, FAKE: 4 };
+            const ORB_COLORS = ["#f93", "#f33", "#39f", "#3c3", "#a4f"];
 
-// 第2形態以降で降ってくる玉の順番(固定)。落下位置はランダム
-const ORB_ORDER_MAIN = [1, 2, 3, 4, 0, 3, 4, 2, 1, 0];
-const ORB_ORDER_PATTERN = [1, 2, 3, 4, 0, 4];
+            // 第2形態以降で降ってくる玉の順番(固定)。落下位置はランダム
+            const ORB_ORDER_MAIN = [1, 2, 3, 4, 0, 3, 4, 2, 1, 0];
+            const ORB_ORDER_PATTERN = [1, 2, 3, 4, 0, 4];
 
-// 移動キー以外のキーで1回だけ使える回復(デバッグ表示つき)
-const KEY_HEAL = 3;          // 回復量
-const KEY_BOSS_BUFF = .1;    // ボス強化(弾速倍率に加算)
-const KEY_DEBUG_FRAMES = 180;
-const IGNORED_KEYS = new Set([
-  'w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift',
-  'enter', ' ', 'f', 'escape', 'tab', 'control', 'alt', 'meta', 'capslock'
-]);
+            // 移動キー以外のキーで1回だけ使える回復(デバッグ表示つき)
+            const KEY_HEAL = 3; // 回復量
+            const KEY_BOSS_BUFF = 0.1; // ボス強化(弾速倍率に加算)
+            const KEY_DEBUG_FRAMES = 180;
+            const SECRET_KEY_CANDIDATES = "bceghijklmnopqrtuvxyz0123456789"; // 移動キー(WASD)とFは除外
+            // keys that never count as a guess (movement, fullscreen, advance, modifiers)
+            const IGNORED_KEYS = new Set([
+                "w", "a", "s", "d", "f",
+                "arrowup", "arrowdown", "arrowleft", "arrowright",
+                "enter", " ", "shift", "control", "alt", "meta",
+                "tab", "escape", "capslock",
+            ]);
+            const S = {
+                TITLE: "title",
+                SELECT: "select",
+                PLAY: "play",
+                GAG: "gag",
+                FAKE: "fake",
+                FCLEAR: "fclear",
+                OVER: "over",
+                WIN: "win",
+            };
 
-// 画面状態
-const S = {
-  TITLE: 'title', SELECT: 'select', PLAY: 'play', GAG: 'gag',
-  FAKE: 'fake', FCLEAR: 'fclear', OVER: 'over', WIN: 'win'
-};
+            // ボタン領域
+            const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 }; // x is updated by layout()
+            const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x is updated by layout()
 
-// ボタン領域
-const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 };
-const BTN_GAG_DONE     = { x: 150, y: 420, w: 180, h: 60 };
+            const GAG_TEXTS = [
+                "全力で変な顔をしてください",
+                "3秒間、最高にカッコいいポーズ",
+                "自分を褒めるセリフを言ってください",
+                "急にアイドルになってください",
+                "必殺技名を考えて叫んでください",
+                "自分の名前をめちゃくちゃカッコよく言って！",
+                "え〜♡ そんなこともできないの〜？",
+                "ねぇねぇ♡ がんばってぇ〜♡",
+                "えへへ♡ かわいいでしょ〜♡",
+                "お願い♡ 一回だけやってぇ〜♡",
+                "恥ずかしがらなくていいよ♡",
+            ];
+            const TAUNTS = [
+                "こんなんで負けちゃうんだ",
+                "ザッコ",
+                "よっわ",
+                "切り抜きよろしく〜",
+                "また勝っちゃった",
+                "なんで負けたか自分の悪かった点をどうぞ！",
+                "よわよわのいわし",
+                "うえええええええええええい勝ったあああああああ",
+                "今のは避けれたよね",
+                "なんで球に当たるのかな",
+                "まだ第◯形態だけど大丈夫？",
+                "今の攻撃きつかった？",
+                "(え、ヨワ)、笑",
+            ];
 
-const GAG_TEXTS = [
-  '全力で変な顔をしてください', '3秒間、最高にカッコいいポーズ', '自分を褒めるセリフを言ってください',
-  '急にアイドルになってください', '必殺技名を考えて叫んでください', '自分の名前をめちゃくちゃカッコよく言って！',
-  'え〜♡ そんなこともできないの〜？', 'ねぇねぇ♡ がんばってぇ〜♡', 'えへへ♡ かわいいでしょ〜♡',
-  'お願い♡ 一回だけやってぇ〜♡', '恥ずかしがらなくていいよ♡'
-];
-const TAUNTS = [
-  'こんなんで負けちゃうんだ', 'ザッコ', 'よっわ', '切り抜きよろしく〜', 'また勝っちゃった',
-  'なんで負けたか自分の悪かった点をどうぞ！', 'よわよわのいわし', 'うえええええええええええい勝ったあああああああ',
-  '今のは避けれたよね', 'なんで球に当たるのかな', 'まだ第◯形態だけど大丈夫？', '今の攻撃きつかった？', '(え、ヨワ)、笑'
-];
+            /* =====================================================================
+             *  ゲーム状態
+             * ===================================================================== */
+            let state; // 現在の画面状態
+            let player; // {x, y, hp, inv}
+            let boss; // {x, y, hp, max}
+            let bullets, beams, shots, orbs, queue, history;
+            let speedMul; // 弾速倍率(赤玉で上昇)
+            let dmgMul; // 被ダメージ倍率(緑玉で2倍)
+            let phase; // 形態(0〜3)
+            let patIdx, patTime; // 攻撃シーケンス内の位置と経過フレーム
+            let frame; // 全体フレームカウンタ
+            let swapOrbs; // 玉の効果を入れ替えるか(第2形態の途中選択)
+            let midPickDone; // 第2形態の途中選択を済ませたか
+            let fakeTimer, clearTimer, gagText, tauntText;
+            let keyHealUsed; // ランダムキー回復を使ったか
+            let secretKey; // 回復が発動する「ランダムな1キー」(ゲームごとに抽選)
+            let keyDebug; // デバッグ表示 {text, t}
 
-/* =====================================================================
- *  ゲーム状態
- * ===================================================================== */
-let state;          // 現在の画面状態
-let player;         // {x, y, hp, inv}
-let boss;           // {x, y, hp, max}
-let bullets, beams, shots, orbs, queue, history;
-let speedMul;       // 弾速倍率(赤玉で上昇)
-let dmgMul;         // 被ダメージ倍率(緑玉で2倍)
-let phase;          // 形態(0〜3)
-let patIdx, patTime;// 攻撃シーケンス内の位置と経過フレーム
-let frame;          // 全体フレームカウンタ
-let swapOrbs;       // 玉の効果を入れ替えるか(第2形態の途中選択)
-let midPickDone;    // 第2形態の途中選択を済ませたか
-let fakeTimer, clearTimer, gagText, tauntText;
-let keyHealUsed;    // ランダムキー回復を使ったか
-let keyDebug;       // デバッグ表示 {text, t}
+            const selectOrbX = (i) => CX - 200 + i * 80; // orbs on the select screen
+            const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
-const pick = arr => arr[Math.random() * arr.length | 0];
+            function resetGame() {
+                state = S.TITLE;
+                swapOrbs = false;
+                midPickDone = false;
+                keyHealUsed = false;
+                secretKey = pick([...SECRET_KEY_CANDIDATES]);
+                keyDebug = { text: "", t: 0 };
+                player = {
+                    x: PLAYER_START.x,
+                    y: PLAYER_START.y,
+                    hp: PLAYER_MAX_HP,
+                    inv: 0,
+                };
+                bullets = [];
+                beams = [];
+                shots = [];
+                orbs = [];
+                queue = [];
+                history = [];
+                speedMul = 1.1;
+                dmgMul = 1;
+                phase = 0;
+                patIdx = 0;
+                patTime = 0;
+                frame = 0;
+                boss = { x: CX, y: 90, hp: BOSS_HP[0], max: BOSS_HP[0] };
+            }
 
-function resetGame() {
-  state = S.TITLE;
-  swapOrbs = false;
-  midPickDone = false;
-  keyHealUsed = false;
-  keyDebug = { text: '', t: 0 };
-  player = { x: PLAYER_START.x, y: PLAYER_START.y, hp: PLAYER_MAX_HP, inv: 0 };
-  bullets = []; beams = []; shots = []; orbs = []; queue = []; history = [];
-  speedMul = 1.1;
-  dmgMul = 1;
-  phase = 0;
-  patIdx = 0;
-  patTime = 0;
-  frame = 0;
-  boss = { x: 240, y: 90, hp: BOSS_HP[0], max: BOSS_HP[0] };
-}
+            /* =====================================================================
+             *  入力
+             * ===================================================================== */
+            const keys = {};
 
-/* =====================================================================
- *  入力
- * ===================================================================== */
-const keys = {};
+            function enterFullscreen() {
+                const el = document.documentElement;
+                const req = el.requestFullscreen || el.webkitRequestFullscreen;
+                if (req && !document.fullscreenElement) {
+                    try {
+                        Promise.resolve(req.call(el)).catch(() => {});
+                    } catch (_) {}
+                }
+            }
+            function toggleFullscreen() {
+                if (document.fullscreenElement) document.exitFullscreen();
+                else enterFullscreen();
+            }
 
-function enterFullscreen() {
-  const el = document.documentElement;
-  const req = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (req && !document.fullscreenElement) {
-    try { Promise.resolve(req.call(el)).catch(() => {}); } catch (_) {}
-  }
-}
-function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else enterFullscreen();
-}
+            // Enter/Space/クリック共通の「次へ」動作
+            function advance() {
+                if (state === S.TITLE) enterFullscreen(); // スタート時にフルスクリーン化
+                if (state === S.GAG || state === S.TITLE) state = S.PLAY;
+                else if (state === S.OVER || state === S.WIN) resetGame();
+            }
 
-// Enter/Space/クリック共通の「次へ」動作
-function advance() {
-  if (state === S.TITLE) enterFullscreen();   // スタート時にフルスクリーン化
-  if (state === S.GAG || state === S.TITLE) state = S.PLAY;
-  else if (state === S.OVER || state === S.WIN) resetGame();
-}
+            function canvasPoint(e) {
+                const r = canvas.getBoundingClientRect();
+                return {
+                    x: ((e.clientX - r.left) * W) / r.width,
+                    y: ((e.clientY - r.top) * H) / r.height,
+                };
+            }
+            const inButton = (p, b) =>
+                p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h;
 
-function canvasPoint(e) {
-  const r = canvas.getBoundingClientRect();
-  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
-}
-const inButton = (p, b) => p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h;
+            // 移動キー以外のキー: 1回だけ回復、代わりにボス強化
+            function onOtherKey(e) {
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                if (IGNORED_KEYS.has(e.key.toLowerCase())) return;
+                let note = "";
+                if (state === S.PLAY) {
+                    if (e.key.toLowerCase() !== secretKey) {
+                        note = " → ハズレ";
+                    } else if (keyHealUsed) {
+                        note = " → 使用済み";
+                    } else {
+                        keyHealUsed = true;
+                        player.hp = Math.min(
+                            PLAYER_MAX_HP,
+                            player.hp + KEY_HEAL,
+                        );
+                        speedMul += KEY_BOSS_BUFF;
+                        note = " → 回復! ボス強化";
+                    }
+                }
+                keyDebug = {
+                    text: "押されたキー: " + e.key + note,
+                    t: KEY_DEBUG_FRAMES,
+                };
+            }
 
-// 移動キー以外のキー: 1回だけ回復、代わりにボス強化
-function onOtherKey(e) {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (IGNORED_KEYS.has(e.key.toLowerCase())) return;
-  let note = '';
-  if (state === S.PLAY) {
-    if (keyHealUsed) {
-      note = ' → 使用済み';
-    } else {
-      keyHealUsed = true;
-      player.hp = Math.min(PLAYER_MAX_HP, player.hp + KEY_HEAL);
-      speedMul += KEY_BOSS_BUFF;
-      note = ' → 回復! ボス強化';
-    }
-  }
-  keyDebug = { text: '押されたキー: ' + e.key + note, t: KEY_DEBUG_FRAMES };
-}
+            window.addEventListener("keydown", (e) => {
+                keys[e.key.toLowerCase()] = true;
+                if (!e.repeat) {
+                    if (e.key.toLowerCase() === "f") toggleFullscreen();
+                    onOtherKey(e);
+                }
+                if (e.key.startsWith("Arrow")) e.preventDefault();
+                if (e.key === "Enter" || e.key === " ") {
+                    advance();
+                    e.preventDefault();
+                }
+            });
+            window.addEventListener("keyup", (e) => {
+                keys[e.key.toLowerCase()] = false;
+            });
 
-window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if (!e.repeat) {
-    if (e.key.toLowerCase() === 'f') toggleFullscreen();
-    onOtherKey(e);
-  }
-  if (e.key.startsWith('Arrow')) e.preventDefault();
-  if (e.key === 'Enter' || e.key === ' ') { advance(); e.preventDefault(); }
-});
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+            canvas.addEventListener("click", (e) => {
+                const p = canvasPoint(e);
+                if (state === S.FAKE) {
+                    // 偽ゲームオーバーのRESTARTを押すと最初からやり直し(罠)
+                    if (inButton(p, BTN_FAKE_RESTART)) resetGame();
+                } else if (state === S.GAG) {
+                    if (inButton(p, BTN_GAG_DONE)) state = S.PLAY;
+                } else {
+                    advance();
+                }
+            });
 
-canvas.addEventListener('click', e => {
-  const p = canvasPoint(e);
-  if (state === S.FAKE) {
-    // 偽ゲームオーバーのRESTARTを押すと最初からやり直し(罠)
-    if (inButton(p, BTN_FAKE_RESTART)) resetGame();
-  } else if (state === S.GAG) {
-    if (inButton(p, BTN_GAG_DONE)) state = S.PLAY;
-  } else {
-    advance();
-  }
-});
+            // タッチ操作: ドラッグした分だけ自機を動かす
+            let touch = null;
+            const clampPlayer = () => {
+                player.x = Math.max(8, Math.min(W - 8, player.x));
+                player.y = Math.max(8, Math.min(H - 8, player.y));
+            };
+            canvas.addEventListener("pointerdown", (e) => {
+                if (e.pointerType === "mouse") return;
+                touch = { start: canvasPoint(e), px: player.x, py: player.y };
+                canvas.setPointerCapture(e.pointerId);
+            });
+            canvas.addEventListener("pointermove", (e) => {
+                if (!touch || (state !== S.PLAY && state !== S.SELECT)) return;
+                const q = canvasPoint(e);
+                player.x = touch.px + (q.x - touch.start.x);
+                player.y = touch.py + (q.y - touch.start.y);
+                clampPlayer();
+            });
+            const endTouch = () => {
+                touch = null;
+            };
+            canvas.addEventListener("pointerup", endTouch);
+            canvas.addEventListener("pointercancel", endTouch);
 
-// タッチ操作: ドラッグした分だけ自機を動かす
-let touch = null;
-const clampPlayer = () => {
-  player.x = Math.max(8, Math.min(W - 8, player.x));
-  player.y = Math.max(8, Math.min(H - 8, player.y));
-};
-canvas.addEventListener('pointerdown', e => {
-  if (e.pointerType === 'mouse') return;
-  touch = { start: canvasPoint(e), px: player.x, py: player.y };
-  canvas.setPointerCapture(e.pointerId);
-});
-canvas.addEventListener('pointermove', e => {
-  if (!touch || (state !== S.PLAY && state !== S.SELECT)) return;
-  const q = canvasPoint(e);
-  player.x = touch.px + (q.x - touch.start.x);
-  player.y = touch.py + (q.y - touch.start.y);
-  clampPlayer();
-});
-const endTouch = () => { touch = null; };
-canvas.addEventListener('pointerup', endTouch);
-canvas.addEventListener('pointercancel', endTouch);
+            /* =====================================================================
+             *  弾・ビームの生成ヘルパー
+             * ===================================================================== */
+            const aim = (x, y, target = player) =>
+                Math.atan2(target.y - y, target.x - x);
+            const aimFromBoss = () => aim(boss.x, boss.y);
 
-/* =====================================================================
- *  弾・ビームの生成ヘルパー
- * ===================================================================== */
-const aim = (x, y, target = player) => Math.atan2(target.y - y, target.x - x);
-const aimFromBoss = () => aim(boss.x, boss.y);
+            function spawnBullet(x, y, angle, speed, opt = {}) {
+                bullets.push({
+                    x,
+                    y,
+                    vx: Math.cos(angle) * speed * speedMul,
+                    vy: Math.sin(angle) * speed * speedMul,
+                    s: speed * speedMul,
+                    r: 5,
+                    col: "#f55",
+                    del: 0, // 出現までの遅延フレーム
+                    hm: 0, // 残りホーミングフレーム
+                    ax: 0, // x方向加速度
+                    ...opt,
+                });
+            }
+            const spawnRing = (x, y, count, speed, offset, opt) => {
+                for (let i = 0; i < count; i++)
+                    spawnBullet(
+                        x,
+                        y,
+                        offset + (i * 2 * PI) / count,
+                        speed,
+                        opt,
+                    );
+            };
+            const bossShot = (angle, speed, opt) =>
+                spawnBullet(boss.x, boss.y + 20, angle, speed, opt);
+            const bossRing = (count, speed, offset, opt) =>
+                spawnRing(boss.x, boss.y + 20, count, speed, offset, opt);
 
-function spawnBullet(x, y, angle, speed, opt = {}) {
-  bullets.push({
-    x, y,
-    vx: Math.cos(angle) * speed * speedMul,
-    vy: Math.sin(angle) * speed * speedMul,
-    s: speed * speedMul,
-    r: 5, col: '#f55',
-    del: 0,   // 出現までの遅延フレーム
-    hm: 0,    // 残りホーミングフレーム
-    ax: 0,    // x方向加速度
-    ...opt
-  });
-}
-const spawnRing = (x, y, count, speed, offset, opt) => {
-  for (let i = 0; i < count; i++) spawnBullet(x, y, offset + i * 2 * PI / count, speed, opt);
-};
-const bossShot = (angle, speed, opt) => spawnBullet(boss.x, boss.y + 20, angle, speed, opt);
-const bossRing = (count, speed, offset, opt) => spawnRing(boss.x, boss.y + 20, count, speed, offset, opt);
+            function spawnBeam(
+                x,
+                y,
+                angle,
+                turn,
+                warn,
+                dur,
+                width,
+                reflections,
+            ) {
+                beams.push({
+                    x,
+                    y,
+                    a: angle,
+                    da: turn,
+                    warn,
+                    dur,
+                    w: width,
+                    refl: reflections,
+                    age: 0,
+                });
+            }
+            const later = (frames, fn) => queue.push({ t: frames, f: fn });
 
-function spawnBeam(x, y, angle, turn, warn, dur, width, reflections) {
-  beams.push({ x, y, a: angle, da: turn, warn, dur, w: width, refl: reflections, age: 0 });
-}
-const later = (frames, fn) => queue.push({ t: frames, f: fn });
+            // 画面外から降ってくる玉(落下位置はランダム)
+            const spawnOrb = (kind) =>
+                orbs.push({ x: 70 + Math.random() * (W - 140), y: -10, k: kind });
 
-// 画面外から降ってくる玉(落下位置はランダム)
-const spawnOrb = kind => orbs.push({ x: 70 + Math.random() * 340, y: -10, k: kind });
+            /* =====================================================================
+             *  攻撃パターン (t = パターン開始からのフレーム)
+             * ===================================================================== */
+            const PATTERNS = {
+                // 4回目だけ軌道が変わる扇弾
+                rep(t) {
+                    if (t % 60 !== 0 || t >= 240) return;
+                    const count = t / 60,
+                        a = aimFromBoss();
+                    for (let i = -4; i <= 4; i++) {
+                        if (count < 3) bossShot(a + i * 0.17, 3);
+                        else
+                            bossShot(a + i * 0.17, 2.8, {
+                                ax: i % 2 ? 0.015 : -0.015,
+                                col: "#ff0",
+                            });
+                    }
+                },
+                // 避けた先に遅れて弾が出る
+                follow(t) {
+                    if (t % 100 === 0) {
+                        spawnBullet(W + 8, player.y, PI, 4.2, { col: "#5cf" });
+                        later(28, () =>
+                            spawnBullet(-8, player.y, 0, 4.6, { col: "#5cf" }),
+                        );
+                    }
+                    if (t % 100 === 50) {
+                        spawnBullet(player.x, -8, PI / 2, 4.2, { col: "#5cf" });
+                        later(28, () =>
+                            spawnBullet(player.x, H + 8, -PI / 2, 4.6, {
+                                col: "#5cf",
+                            }),
+                        );
+                    }
+                },
+                // 隙間がゆっくり動く弾の壁
+                wall(t) {
+                    if (t % 22 !== 0 || t >= 340) return;
+                    const gap = CX + Math.sin((t / 22) * 0.45) * 150 * (W / 480);
+                    for (let x = 10; x < W; x += 24) {
+                        if (Math.abs(x - gap) > 28)
+                            spawnBullet(x, -8, PI / 2, 2.8, {
+                                r: 6,
+                                col: "#f80",
+                            });
+                    }
+                },
+                // ビーム予告＋通常弾
+                beam(t) {
+                    if (t === 10 || t === 130)
+                        spawnBeam(player.x, 0, PI / 2, 0, 50, 30, 18, 0);
+                    if (t % 40 === 0) bossRing(10, 2.2, t, {});
+                },
+                // 追尾して途中で直進する弾
+                home(t) {
+                    if (t % 50 !== 0 || t >= 250) return;
+                    const x = t % 100 ? CX + 120 : CX - 120;
+                    spawnBullet(x, 100, aim(x, 100), 2.4, {
+                        hm: 80,
+                        col: "#f6f",
+                        r: 6,
+                    });
+                },
+                // 通った場所に遅れて弾が残る
+                trail(t) {
+                    if (t % 8 === 0)
+                        spawnBullet(player.x, player.y, PI / 2, 1.5, {
+                            del: 40,
+                            col: "#fa0",
+                            r: 4,
+                        });
+                    if (t % 70 === 0)
+                        bossShot(aimFromBoss(), 2.4, {
+                            hm: 60,
+                            col: "#f6f",
+                            r: 6,
+                        });
+                },
+                // 縦ビームの隙間が動く
+                vbeam(t) {
+                    if (t === 0 || t === 150) {
+                        const offset = t ? 40 : 0;
+                        // beams across the whole width (6 beams when W = 480)
+                        const n = Math.floor(W / 80),
+                            x0 = (W - (n - 1) * 80) / 2;
+                        for (let i = 0; i < n; i++)
+                            spawnBeam(
+                                x0 + i * 80 + offset,
+                                0,
+                                PI / 2,
+                                0,
+                                70,
+                                40,
+                                36,
+                                0,
+                            );
+                    }
+                    if (t % 45 === 20) bossShot(aimFromBoss(), 3);
+                },
+                // 反射ビーム(角度は固定)
+                refl(t) {
+                    if (t === 0 || t === 150) {
+                        for (const f of t ? [0.2, 0.8] : [0.35, 0.65])
+                            spawnBeam(
+                                boss.x,
+                                boss.y + 20,
+                                PI * f,
+                                0,
+                                60,
+                                70,
+                                12,
+                                3,
+                            );
+                    }
+                    if (t % 60 === 30) bossRing(12, 2, t, {});
+                },
+                // 過去パターンの再利用(最後だけ変更)
+                rep2(t) {
+                    if (t % 60 !== 0 || t >= 240) return;
+                    const count = t / 60,
+                        a = aimFromBoss(),
+                        early = count < 3;
+                    for (let i = -4; i <= 4; i++) {
+                        bossShot(a + i * 0.17, early ? 3 : 4.4, {
+                            col: early ? "#f55" : "#ff0",
+                        });
+                    }
+                    if (count === 3)
+                        later(20, () => bossRing(14, 2.4, 0, { col: "#ff0" }));
+                },
+                // 数秒前の位置を狙う偽追尾弾
+                fake(t) {
+                    if (t % 40 === 0)
+                        bossShot(
+                            aim(boss.x, boss.y + 20, history[0] || player),
+                            3.6,
+                            { col: "#0ff" },
+                        );
+                    if (t % 90 === 45) bossRing(8, 2, 0, {});
+                },
+                // 回転ビーム＋通常弾
+                rot(t) {
+                    if (t === 0)
+                        spawnBeam(
+                            boss.x,
+                            boss.y + 20,
+                            0.2,
+                            0.011,
+                            40,
+                            260,
+                            22,
+                            0,
+                        );
+                    if (t % 30 === 0) bossRing(6, 2.3, t * 0.07, {});
+                },
+                // 玉の混入
+                orbs(t) {
+                    if (t % 50 === 0 && t < 300)
+                        spawnOrb(
+                            ORB_ORDER_PATTERN[
+                                (t / 50) % ORB_ORDER_PATTERN.length
+                            ],
+                        );
+                    if (t % 45 === 0) bossRing(8, 2.1, t, {});
+                },
+            };
+            const PATTERN_DURATION = {
+                rep: 260,
+                follow: 300,
+                wall: 360,
+                beam: 260,
+                home: 330,
+                trail: 300,
+                vbeam: 300,
+                refl: 330,
+                rep2: 260,
+                fake: 300,
+                rot: 320,
+                orbs: 320,
+            };
+            // 形態ごとの攻撃シーケンス(同時に走らせるパターンを配列で指定)
+            const SEQUENCES = [
+                [["rep"], ["follow"], ["wall"], ["beam"]],
+                [["home"], ["trail"], ["vbeam"], ["refl"]],
+                [["rep2"], ["fake"], ["rot"], ["orbs"]],
+                [
+                    ["rep2", "home"],
+                    ["rot", "wall"],
+                    ["refl", "vbeam", "fake"],
+                    ["orbs", "trail", "follow"],
+                    ["rot", "vbeam", "home", "orbs"],
+                ],
+            ];
 
-/* =====================================================================
- *  攻撃パターン (t = パターン開始からのフレーム)
- * ===================================================================== */
-const PATTERNS = {
-  // 4回目だけ軌道が変わる扇弾
-  rep(t) {
-    if (t % 60 !== 0 || t >= 240) return;
-    const count = t / 60, a = aimFromBoss();
-    for (let i = -4; i <= 4; i++) {
-      if (count < 3) bossShot(a + i * .17, 3);
-      else bossShot(a + i * .17, 2.8, { ax: i % 2 ? .015 : -.015, col: '#ff0' });
-    }
-  },
-  // 避けた先に遅れて弾が出る
-  follow(t) {
-    if (t % 100 === 0) {
-      spawnBullet(W + 8, player.y, PI, 4.2, { col: '#5cf' });
-      later(28, () => spawnBullet(-8, player.y, 0, 4.6, { col: '#5cf' }));
-    }
-    if (t % 100 === 50) {
-      spawnBullet(player.x, -8, PI / 2, 4.2, { col: '#5cf' });
-      later(28, () => spawnBullet(player.x, H + 8, -PI / 2, 4.6, { col: '#5cf' }));
-    }
-  },
-  // 隙間がゆっくり動く弾の壁
-  wall(t) {
-    if (t % 22 !== 0 || t >= 340) return;
-    const gap = 240 + Math.sin(t / 22 * .45) * 150;
-    for (let x = 10; x < W; x += 24) {
-      if (Math.abs(x - gap) > 28) spawnBullet(x, -8, PI / 2, 2.8, { r: 6, col: '#f80' });
-    }
-  },
-  // ビーム予告＋通常弾
-  beam(t) {
-    if (t === 10 || t === 130) spawnBeam(player.x, 0, PI / 2, 0, 50, 30, 18, 0);
-    if (t % 40 === 0) bossRing(10, 2.2, t, {});
-  },
-  // 追尾して途中で直進する弾
-  home(t) {
-    if (t % 50 !== 0 || t >= 250) return;
-    const x = t % 100 ? 360 : 120;
-    spawnBullet(x, 100, aim(x, 100), 2.4, { hm: 80, col: '#f6f', r: 6 });
-  },
-  // 通った場所に遅れて弾が残る
-  trail(t) {
-    if (t % 8 === 0) spawnBullet(player.x, player.y, PI / 2, 1.5, { del: 40, col: '#fa0', r: 4 });
-    if (t % 70 === 0) bossShot(aimFromBoss(), 2.4, { hm: 60, col: '#f6f', r: 6 });
-  },
-  // 縦ビームの隙間が動く
-  vbeam(t) {
-    if (t === 0 || t === 150) {
-      const offset = t ? 40 : 0;
-      for (let i = 0; i < 6; i++) spawnBeam(40 + i * 80 + offset, 0, PI / 2, 0, 70, 40, 36, 0);
-    }
-    if (t % 45 === 20) bossShot(aimFromBoss(), 3);
-  },
-  // 反射ビーム(角度は固定)
-  refl(t) {
-    if (t === 0 || t === 150) {
-      for (const f of t ? [.2, .8] : [.35, .65]) spawnBeam(boss.x, boss.y + 20, PI * f, 0, 60, 70, 12, 3);
-    }
-    if (t % 60 === 30) bossRing(12, 2, t, {});
-  },
-  // 過去パターンの再利用(最後だけ変更)
-  rep2(t) {
-    if (t % 60 !== 0 || t >= 240) return;
-    const count = t / 60, a = aimFromBoss(), early = count < 3;
-    for (let i = -4; i <= 4; i++) {
-      bossShot(a + i * .17, early ? 3 : 4.4, { col: early ? '#f55' : '#ff0' });
-    }
-    if (count === 3) later(20, () => bossRing(14, 2.4, 0, { col: '#ff0' }));
-  },
-  // 数秒前の位置を狙う偽追尾弾
-  fake(t) {
-    if (t % 40 === 0) bossShot(aim(boss.x, boss.y + 20, history[0] || player), 3.6, { col: '#0ff' });
-    if (t % 90 === 45) bossRing(8, 2, 0, {});
-  },
-  // 回転ビーム＋通常弾
-  rot(t) {
-    if (t === 0) spawnBeam(boss.x, boss.y + 20, .2, .011, 40, 260, 22, 0);
-    if (t % 30 === 0) bossRing(6, 2.3, t * .07, {});
-  },
-  // 玉の混入
-  orbs(t) {
-    if (t % 50 === 0 && t < 300) spawnOrb(ORB_ORDER_PATTERN[(t / 50) % ORB_ORDER_PATTERN.length]);
-    if (t % 45 === 0) bossRing(8, 2.1, t, {});
-  }
-};
-const PATTERN_DURATION = {
-  rep: 260, follow: 300, wall: 360, beam: 260, home: 330, trail: 300,
-  vbeam: 300, refl: 330, rep2: 260, fake: 300, rot: 320, orbs: 320
-};
-// 形態ごとの攻撃シーケンス(同時に走らせるパターンを配列で指定)
-const SEQUENCES = [
-  [['rep'], ['follow'], ['wall'], ['beam']],
-  [['home'], ['trail'], ['vbeam'], ['refl']],
-  [['rep2'], ['fake'], ['rot'], ['orbs']],
-  [['rep2', 'home'], ['rot', 'wall'], ['refl', 'vbeam', 'fake'], ['orbs', 'trail', 'follow'], ['rot', 'vbeam', 'home', 'orbs']]
-];
+            /* =====================================================================
+             *  ビーム当たり判定ユーティリティ
+             * ===================================================================== */
+            // ビームの折れ線(画面端で反射)
+            function beamPath(b) {
+                let x = b.x,
+                    y = b.y,
+                    dx = Math.cos(b.a),
+                    dy = Math.sin(b.a);
+                const path = [[x, y]];
+                for (let i = 0; i <= b.refl; i++) {
+                    const tx =
+                        dx > 1e-6 ? (W - x) / dx : dx < -1e-6 ? -x / dx : 1e9;
+                    const ty =
+                        dy > 1e-6 ? (H - y) / dy : dy < -1e-6 ? -y / dy : 1e9;
+                    const t = Math.min(tx, ty);
+                    x += dx * t;
+                    y += dy * t;
+                    path.push([x, y]);
+                    if (ty <= tx) break; // 上下に当たったら反射せず終了
+                    dx = -dx; // 左右に当たったら反射
+                }
+                return path;
+            }
 
-/* =====================================================================
- *  ビーム当たり判定ユーティリティ
- * ===================================================================== */
-// ビームの折れ線(画面端で反射)
-function beamPath(b) {
-  let x = b.x, y = b.y, dx = Math.cos(b.a), dy = Math.sin(b.a);
-  const path = [[x, y]];
-  for (let i = 0; i <= b.refl; i++) {
-    const tx = dx > 1e-6 ? (W - x) / dx : dx < -1e-6 ? -x / dx : 1e9;
-    const ty = dy > 1e-6 ? (H - y) / dy : dy < -1e-6 ? -y / dy : 1e9;
-    const t = Math.min(tx, ty);
-    x += dx * t; y += dy * t;
-    path.push([x, y]);
-    if (ty <= tx) break;   // 上下に当たったら反射せず終了
-    dx = -dx;              // 左右に当たったら反射
-  }
-  return path;
-}
+            // 点と線分の距離
+            function distToSegment(px, py, a, b) {
+                const vx = b[0] - a[0],
+                    vy = b[1] - a[1];
+                const len2 = vx * vx + vy * vy || 1;
+                const t = Math.max(
+                    0,
+                    Math.min(1, ((px - a[0]) * vx + (py - a[1]) * vy) / len2),
+                );
+                return Math.hypot(px - a[0] - vx * t, py - a[1] - vy * t);
+            }
 
-// 点と線分の距離
-function distToSegment(px, py, a, b) {
-  const vx = b[0] - a[0], vy = b[1] - a[1];
-  const len2 = vx * vx + vy * vy || 1;
-  const t = Math.max(0, Math.min(1, ((px - a[0]) * vx + (py - a[1]) * vy) / len2));
-  return Math.hypot(px - a[0] - vx * t, py - a[1] - vy * t);
-}
+            /* =====================================================================
+             *  ゲームロジック
+             * ===================================================================== */
+            // 玉を取った時の効果
+            function takeOrb(kind) {
+                state = S.PLAY;
+                if (swapOrbs) kind = (kind + 4) % 5; // 効果入れ替え(見た目と効果がズレる)
+                switch (kind) {
+                    case ORB.HEAL:
+                        player.hp = PLAYER_MAX_HP;
+                        speedMul = 1.5;
+                        break; // 全回復＋ボス強化
+                    case ORB.GAG:
+                        state = S.GAG;
+                        gagText = pick(GAG_TEXTS);
+                        break;
+                    case ORB.DOUBLE:
+                        dmgMul = 2;
+                        break;
+                    case ORB.FAKE:
+                        state = S.FAKE;
+                        fakeTimer = 300;
+                        break; // 5秒待てば再開
+                }
+            }
 
-/* =====================================================================
- *  ゲームロジック
- * ===================================================================== */
-// 玉を取った時の効果
-function takeOrb(kind) {
-  state = S.PLAY;
-  if (swapOrbs) kind = (kind + 4) % 5;   // 効果入れ替え(見た目と効果がズレる)
-  switch (kind) {
-    case ORB.HEAL:   player.hp = PLAYER_MAX_HP; speedMul = 1.5; break; // 全回復＋ボス強化
-    case ORB.GAG:    state = S.GAG; gagText = pick(GAG_TEXTS); break;
-    case ORB.DOUBLE: dmgMul = 2; break;
-    case ORB.FAKE:   state = S.FAKE; fakeTimer = 300; break;          // 5秒待てば再開
-  }
-}
+            function hurtPlayer() {
+                if (player.inv > 0) return;
+                player.hp -= dmgMul;
+                player.inv = 60;
+                if (player.hp <= 0) {
+                    state = S.OVER;
+                    tauntText = pick(TAUNTS).replace("◯", FORM_NAMES[phase]);
+                }
+            }
 
-function hurtPlayer() {
-  if (player.inv > 0) return;
-  player.hp -= dmgMul;
-  player.inv = 60;
-  if (player.hp <= 0) {
-    state = S.OVER;
-    tauntText = pick(TAUNTS).replace('◯', FORM_NAMES[phase]);
-  }
-}
+            function movePlayer() {
+                const speed = keys.shift ? 2 : 4;
+                if (keys.a || keys.arrowleft) player.x -= speed;
+                if (keys.d || keys.arrowright) player.x += speed;
+                if (keys.w || keys.arrowup) player.y -= speed;
+                if (keys.s || keys.arrowdown) player.y += speed;
+                clampPlayer();
+            }
 
-function movePlayer() {
-  const speed = keys.shift ? 2 : 4;
-  if (keys.a || keys.arrowleft)  player.x -= speed;
-  if (keys.d || keys.arrowright) player.x += speed;
-  if (keys.w || keys.arrowup)    player.y -= speed;
-  if (keys.s || keys.arrowdown)  player.y += speed;
-  clampPlayer();
-}
+            function updateShots() {
+                if (frame % 8 === 0)
+                    shots.push(
+                        { x: player.x - 8, y: player.y - 10 },
+                        { x: player.x + 8, y: player.y - 10 },
+                    );
+                shots = shots.filter((s) => {
+                    s.y -= 10;
+                    if (
+                        Math.abs(s.x - boss.x) < 42 &&
+                        Math.abs(s.y - boss.y) < 24
+                    ) {
+                        boss.hp--;
+                        return false;
+                    }
+                    return s.y > -10;
+                });
+            }
 
-function updateShots() {
-  if (frame % 8 === 0) shots.push({ x: player.x - 8, y: player.y - 10 }, { x: player.x + 8, y: player.y - 10 });
-  shots = shots.filter(s => {
-    s.y -= 10;
-    if (Math.abs(s.x - boss.x) < 42 && Math.abs(s.y - boss.y) < 24) { boss.hp--; return false; }
-    return s.y > -10;
-  });
-}
+            function runPatterns() {
+                const seq = SEQUENCES[phase][patIdx];
+                for (const name of seq) {
+                    if (patTime < PATTERN_DURATION[name])
+                        PATTERNS[name](patTime);
+                }
+                patTime++;
+                if (
+                    patTime >= Math.max(...seq.map((n) => PATTERN_DURATION[n]))
+                ) {
+                    patTime = 0;
+                    patIdx = (patIdx + 1) % SEQUENCES[phase].length;
+                }
+            }
 
-function runPatterns() {
-  const seq = SEQUENCES[phase][patIdx];
-  for (const name of seq) {
-    if (patTime < PATTERN_DURATION[name]) PATTERNS[name](patTime);
-  }
-  patTime++;
-  if (patTime >= Math.max(...seq.map(n => PATTERN_DURATION[n]))) {
-    patTime = 0;
-    patIdx = (patIdx + 1) % SEQUENCES[phase].length;
-  }
-}
+            function runQueue() {
+                queue.forEach((q) => q.t--);
+                const due = queue.filter((q) => q.t <= 0);
+                queue = queue.filter((q) => q.t > 0);
+                due.forEach((q) => q.f());
+            }
 
-function runQueue() {
-  queue.forEach(q => q.t--);
-  const due = queue.filter(q => q.t <= 0);
-  queue = queue.filter(q => q.t > 0);
-  due.forEach(q => q.f());
-}
+            function updateBullets() {
+                bullets = bullets.filter((b) => {
+                    if (b.del > 0) {
+                        b.del--;
+                        return true;
+                    }
+                    if (b.hm > 0) {
+                        b.hm--;
+                        const a = aim(b.x, b.y);
+                        b.vx = Math.cos(a) * b.s;
+                        b.vy = Math.sin(a) * b.s;
+                    }
+                    b.vx += b.ax;
+                    b.x += b.vx;
+                    b.y += b.vy;
+                    if (Math.hypot(b.x - player.x, b.y - player.y) < b.r + 3)
+                        hurtPlayer();
+                    return (
+                        b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < H + 20
+                    );
+                });
+            }
 
-function updateBullets() {
-  bullets = bullets.filter(b => {
-    if (b.del > 0) { b.del--; return true; }
-    if (b.hm > 0) {
-      b.hm--;
-      const a = aim(b.x, b.y);
-      b.vx = Math.cos(a) * b.s;
-      b.vy = Math.sin(a) * b.s;
-    }
-    b.vx += b.ax;
-    b.x += b.vx;
-    b.y += b.vy;
-    if (Math.hypot(b.x - player.x, b.y - player.y) < b.r + 3) hurtPlayer();
-    return b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < H + 20;
-  });
-}
+            function updateBeams() {
+                beams = beams.filter((b) => {
+                    b.age++;
+                    b.a += b.da;
+                    if (b.age > b.warn && b.age <= b.warn + b.dur) {
+                        const path = beamPath(b);
+                        for (let i = 0; i < path.length - 1; i++) {
+                            if (
+                                distToSegment(
+                                    player.x,
+                                    player.y,
+                                    path[i],
+                                    path[i + 1],
+                                ) <
+                                b.w / 2 + 3
+                            )
+                                hurtPlayer();
+                        }
+                    }
+                    return b.age <= b.warn + b.dur;
+                });
+            }
 
-function updateBeams() {
-  beams = beams.filter(b => {
-    b.age++;
-    b.a += b.da;
-    if (b.age > b.warn && b.age <= b.warn + b.dur) {
-      const path = beamPath(b);
-      for (let i = 0; i < path.length - 1; i++) {
-        if (distToSegment(player.x, player.y, path[i], path[i + 1]) < b.w / 2 + 3) hurtPlayer();
-      }
-    }
-    return b.age <= b.warn + b.dur;
-  });
-}
+            function updateOrbs() {
+                orbs = orbs.filter((o) => {
+                    o.y += 1.8;
+                    if (Math.hypot(o.x - player.x, o.y - player.y) < 16) {
+                        takeOrb(o.k);
+                        return false;
+                    }
+                    return o.y < H + 20;
+                });
+            }
 
-function updateOrbs() {
-  orbs = orbs.filter(o => {
-    o.y += 1.8;
-    if (Math.hypot(o.x - player.x, o.y - player.y) < 16) { takeOrb(o.k); return false; }
-    return o.y < H + 20;
-  });
-}
+            // 第2形態でHPが6割になったら、効果が入れ替わった玉の選択を強制
+            function checkMidPick() {
+                if (
+                    phase === 1 &&
+                    !midPickDone &&
+                    boss.hp > 0 &&
+                    boss.hp <= boss.max * 0.6
+                ) {
+                    midPickDone = true;
+                    swapOrbs = true;
+                    state = S.SELECT;
+                    bullets = [];
+                    beams = [];
+                    queue = [];
+                    shots = [];
+                    player.x = PLAYER_START.x;
+                    player.y = PLAYER_START.y;
+                    return true;
+                }
+                return false;
+            }
 
-// 第2形態でHPが6割になったら、効果が入れ替わった玉の選択を強制
-function checkMidPick() {
-  if (phase === 1 && !midPickDone && boss.hp > 0 && boss.hp <= boss.max * .6) {
-    midPickDone = true;
-    swapOrbs = true;
-    state = S.SELECT;
-    bullets = []; beams = []; queue = []; shots = [];
-    player.x = PLAYER_START.x; player.y = PLAYER_START.y;
-    return true;
-  }
-  return false;
-}
+            // ボス撃破時の形態遷移
+            function checkBossDefeated() {
+                if (boss.hp > 0 || state !== S.PLAY) return;
+                bullets = [];
+                beams = [];
+                queue = [];
+                orbs = [];
+                patTime = 0;
+                patIdx = 0;
+                if (phase === 3) {
+                    state = S.WIN;
+                } else if (phase === 2) {
+                    state = S.FCLEAR; // 偽撃破演出
+                    clearTimer = 200;
+                } else {
+                    phase++;
+                    boss.hp = boss.max = BOSS_HP[phase];
+                    if (phase === 1) {
+                        state = S.SELECT;
+                        player.x = PLAYER_START.x;
+                        player.y = PLAYER_START.y;
+                    }
+                }
+            }
 
-// ボス撃破時の形態遷移
-function checkBossDefeated() {
-  if (boss.hp > 0 || state !== S.PLAY) return;
-  bullets = []; beams = []; queue = []; orbs = [];
-  patTime = 0; patIdx = 0;
-  if (phase === 3) {
-    state = S.WIN;
-  } else if (phase === 2) {
-    state = S.FCLEAR;       // 偽撃破演出
-    clearTimer = 200;
-  } else {
-    phase++;
-    boss.hp = boss.max = BOSS_HP[phase];
-    if (phase === 1) { state = S.SELECT; player.x = PLAYER_START.x; player.y = PLAYER_START.y; }
-  }
-}
+            function updatePlay() {
+                movePlayer();
+                if (player.inv > 0) player.inv--;
+                history.push({ x: player.x, y: player.y });
+                if (history.length > 60) history.shift();
 
-function updatePlay() {
-  movePlayer();
-  if (player.inv > 0) player.inv--;
-  history.push({ x: player.x, y: player.y });
-  if (history.length > 60) history.shift();
+                boss.x = CX + Math.sin(frame / 120) * 100 * (W / 480);
 
-  boss.x = 240 + Math.sin(frame / 120) * 100;
+                // 第2形態以降: 一定間隔で玉が降る(順番固定・位置ランダム)
+                if (phase >= 1 && frame % 270 === 135) {
+                    spawnOrb(
+                        ORB_ORDER_MAIN[
+                            ((frame / 270) | 0) % ORB_ORDER_MAIN.length
+                        ],
+                    );
+                }
 
-  // 第2形態以降: 一定間隔で玉が降る(順番固定・位置ランダム)
-  if (phase >= 1 && frame % 270 === 135) {
-    spawnOrb(ORB_ORDER_MAIN[(frame / 270 | 0) % ORB_ORDER_MAIN.length]);
-  }
+                updateShots();
+                runPatterns();
+                runQueue();
+                updateBullets();
+                updateBeams();
+                updateOrbs();
 
-  updateShots();
-  runPatterns();
-  runQueue();
-  updateBullets();
-  updateBeams();
-  updateOrbs();
+                if (checkMidPick()) return;
+                checkBossDefeated();
+            }
 
-  if (checkMidPick()) return;
-  checkBossDefeated();
-}
+            function update() {
+                frame++;
+                if (keyDebug.t > 0) keyDebug.t--;
+                switch (state) {
+                    case S.SELECT:
+                        movePlayer();
+                        ORB_COLORS.forEach((_, i) => {
+                            if (
+                                Math.hypot(
+                                    selectOrbX(i) - player.x,
+                                    300 - player.y,
+                                ) < 24
+                            )
+                                takeOrb(i);
+                        });
+                        break;
+                    case S.PLAY:
+                        updatePlay();
+                        break;
+                    case S.FAKE:
+                        if (--fakeTimer <= 0) state = S.PLAY;
+                        break;
+                    case S.FCLEAR:
+                        if (--clearTimer <= 0) {
+                            phase = 3;
+                            swapOrbs = false;
+                            boss.hp = boss.max = BOSS_HP[3];
+                            state = S.PLAY;
+                        }
+                        break;
+                }
+            }
 
-function update() {
-  frame++;
-  if (keyDebug.t > 0) keyDebug.t--;
-  switch (state) {
-    case S.SELECT:
-      movePlayer();
-      ORB_COLORS.forEach((_, i) => {
-        if (Math.hypot(80 + i * 80 - player.x, 300 - player.y) < 24) takeOrb(i);
-      });
-      break;
-    case S.PLAY:
-      updatePlay();
-      break;
-    case S.FAKE:
-      if (--fakeTimer <= 0) state = S.PLAY;
-      break;
-    case S.FCLEAR:
-      if (--clearTimer <= 0) {
-        phase = 3;
-        swapOrbs = false;
-        boss.hp = boss.max = BOSS_HP[3];
-        state = S.PLAY;
-      }
-      break;
-  }
-}
+            /* =====================================================================
+             *  描画
+             * ===================================================================== */
+            // 幅440pxに収まるよう縮小しながら描画するテキスト
+            function drawText(str, x, y, size, color, align = "center") {
+                ctx.textAlign = align;
+                ctx.fillStyle = color;
+                ctx.font = "bold " + size + "px sans-serif";
+                while (ctx.measureText(str).width > 440 && size > 10) {
+                    ctx.font = "bold " + --size + "px sans-serif";
+                }
+                ctx.fillText(str, x, y);
+            }
 
-/* =====================================================================
- *  描画
- * ===================================================================== */
-// 幅440pxに収まるよう縮小しながら描画するテキスト
-function drawText(str, x, y, size, color, align = 'center') {
-  ctx.textAlign = align;
-  ctx.fillStyle = color;
-  ctx.font = 'bold ' + size + 'px sans-serif';
-  while (ctx.measureText(str).width > 440 && size > 10) {
-    ctx.font = 'bold ' + (--size) + 'px sans-serif';
-  }
-  ctx.fillText(str, x, y);
-}
+            function drawCircle(x, y, r, color, filled = true) {
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, 7);
+                if (filled) {
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                } else {
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
 
-function drawCircle(x, y, r, color, filled = true) {
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, 7);
-  if (filled) { ctx.fillStyle = color; ctx.fill(); }
-  else { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke(); }
-}
+            const fillScreen = (color) => {
+                ctx.fillStyle = color;
+                ctx.fillRect(0, 0, W, H);
+            };
 
-const fillScreen = color => { ctx.fillStyle = color; ctx.fillRect(0, 0, W, H); };
+            function drawPlayer(color) {
+                drawCircle(player.x, player.y, 9, color, false);
+                drawCircle(player.x, player.y, 3, "#fff");
+            }
 
-function drawPlayer(color) {
-  drawCircle(player.x, player.y, 9, color, false);
-  drawCircle(player.x, player.y, 3, '#fff');
-}
+            function drawSelect() {
+                drawText("好きな玉を選んでください", CX, 150, 24, "#fff");
+                drawText("WASDで移動", CX, 190, 16, "#889");
+                ORB_COLORS.forEach((c, i) => {
+                    drawCircle(selectOrbX(i), 300, 20, c);
+                    drawCircle(selectOrbX(i), 300, 26, c + "8", false);
+                });
+                drawPlayer("#4df");
+            }
 
-function drawSelect() {
-  drawText('好きな玉を選んでください', 240, 150, 24, '#fff');
-  drawText('WASDで移動', 240, 190, 16, '#889');
-  ORB_COLORS.forEach((c, i) => {
-    drawCircle(80 + i * 80, 300, 20, c);
-    drawCircle(80 + i * 80, 300, 26, c + '8', false);
-  });
-  drawPlayer('#4df');
-}
+            function drawField() {
+                // ボス
+                ctx.font = "48px serif";
+                ctx.textAlign = "center";
+                ctx.fillText(
+                    state === S.FCLEAR ? "💀" : "👿",
+                    boss.x,
+                    boss.y + 16,
+                );
 
-function drawField() {
-  // ボス
-  ctx.font = '48px serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(state === S.FCLEAR ? '💀' : '👿', boss.x, boss.y + 16);
+                // ビーム(予告線 → 本番)
+                for (const b of beams) {
+                    const active = b.age > b.warn;
+                    ctx.beginPath();
+                    beamPath(b).forEach((q, i) =>
+                        i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]),
+                    );
+                    ctx.strokeStyle = active ? "#fff" : "rgba(255,80,80,.5)";
+                    ctx.lineWidth = active ? b.w : 2;
+                    ctx.stroke();
+                }
+                // 弾
+                for (const b of bullets) {
+                    ctx.globalAlpha = b.del > 0 ? 0.3 : 1;
+                    drawCircle(b.x, b.y, b.r, b.col);
+                    ctx.globalAlpha = 1;
+                }
+                // 玉
+                for (const o of orbs) {
+                    drawCircle(o.x, o.y, 12, ORB_COLORS[o.k]);
+                    drawCircle(o.x, o.y, 17, ORB_COLORS[o.k] + "8", false);
+                }
+                // 自機ショット・自機(無敵中は点滅)
+                ctx.fillStyle = "#9ef";
+                shots.forEach((s) => ctx.fillRect(s.x - 1, s.y - 6, 3, 10));
+                if (player.inv % 6 < 3)
+                    drawPlayer(dmgMul > 1 ? "#3c3" : "#4df");
 
-  // ビーム(予告線 → 本番)
-  for (const b of beams) {
-    const active = b.age > b.warn;
-    ctx.beginPath();
-    beamPath(b).forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]));
-    ctx.strokeStyle = active ? '#fff' : 'rgba(255,80,80,.5)';
-    ctx.lineWidth = active ? b.w : 2;
-    ctx.stroke();
-  }
-  // 弾
-  for (const b of bullets) {
-    ctx.globalAlpha = b.del > 0 ? .3 : 1;
-    drawCircle(b.x, b.y, b.r, b.col);
-    ctx.globalAlpha = 1;
-  }
-  // 玉
-  for (const o of orbs) {
-    drawCircle(o.x, o.y, 12, ORB_COLORS[o.k]);
-    drawCircle(o.x, o.y, 17, ORB_COLORS[o.k] + '8', false);
-  }
-  // 自機ショット・自機(無敵中は点滅)
-  ctx.fillStyle = '#9ef';
-  shots.forEach(s => ctx.fillRect(s.x - 1, s.y - 6, 3, 10));
-  if (player.inv % 6 < 3) drawPlayer(dmgMul > 1 ? '#3c3' : '#4df');
+                // HUD
+                ctx.fillStyle = "#333";
+                ctx.fillRect(10, 10, W - 20, 8);
+                ctx.fillStyle = "#e44";
+                ctx.fillRect(
+                    10,
+                    10,
+                    ((W - 20) * Math.max(0, boss.hp)) / boss.max,
+                    8,
+                );
+                drawText(
+                    "第" + FORM_NAMES[phase] + "形態",
+                    10,
+                    36,
+                    14,
+                    "#aab",
+                    "left",
+                );
+                drawText(
+                    "♥".repeat(Math.max(0, player.hp)),
+                    10,
+                    H - 10,
+                    16,
+                    "#f66",
+                    "left",
+                );
+            }
 
-  // HUD
-  ctx.fillStyle = '#333'; ctx.fillRect(10, 10, W - 20, 8);
-  ctx.fillStyle = '#e44'; ctx.fillRect(10, 10, (W - 20) * Math.max(0, boss.hp) / boss.max, 8);
-  drawText('第' + FORM_NAMES[phase] + '形態', 10, 36, 14, '#aab', 'left');
-  drawText('♥'.repeat(Math.max(0, player.hp)), 10, H - 10, 16, '#f66', 'left');
-}
+            function drawOverlay() {
+                switch (state) {
+                    case S.TITLE:
+                        fillScreen("#10101c");
+                        ctx.font = "72px serif";
+                        ctx.textAlign = "center";
+                        ctx.fillText("👿", CX, 200);
+                        drawText("世界一", CX, 290, 36, "#fff");
+                        drawText("イライラするゲーム", CX, 340, 40, "#f55");
+                        drawText(
+                            "難しいんじゃない。イライラするだけ。",
+                            CX,
+                            390,
+                            15,
+                            "#889",
+                        );
+                        if (frame % 60 < 40)
+                            drawText(
+                                "タップ / クリック / Enter でスタート",
+                                CX,
+                                500,
+                                22,
+                                "#fff",
+                            );
+                        drawText(
+                            "移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動",
+                            CX,
+                            560,
+                            14,
+                            "#889",
+                        );
+                        break;
+                    case S.GAG: {
+                        const b = BTN_GAG_DONE;
+                        fillScreen("rgba(0,0,40,.9)");
+                        drawText("一発芸タイム！", CX, 200, 30, "#6af");
+                        drawText(gagText, CX, 320, 28, "#fff");
+                        ctx.fillStyle = "#6af";
+                        ctx.fillRect(b.x, b.y, b.w, b.h);
+                        drawText("やりました！", CX, 460, 22, "#012");
+                        drawText(
+                            "終わったらボタンを押してね",
+                            CX,
+                            520,
+                            14,
+                            "#889",
+                        );
+                        break;
+                    }
+                    case S.FAKE: {
+                        const b = BTN_FAKE_RESTART;
+                        fillScreen("#000");
+                        drawText("GAME OVER", CX, 260, 52, "#e22");
+                        ctx.fillStyle = "#ddd";
+                        ctx.fillRect(b.x, b.y, b.w, b.h);
+                        drawText("RESTART", CX, 380, 22, "#000");
+                        drawText(
+                            "5秒待つと？",
+                            W - 4,
+                            H - 4,
+                            9,
+                            "#444",
+                            "right",
+                        );
+                        break;
+                    }
+                    case S.FCLEAR:
+                        drawText("CLEAR", CX, 320, 64, "#fd0");
+                        break;
+                    case S.OVER:
+                        fillScreen("rgba(0,0,0,.8)");
+                        drawText("GAME OVER", CX, 250, 48, "#e22");
+                        drawText(
+                            "👿「" + tauntText + "」",
+                            CX,
+                            330,
+                            22,
+                            "#fff",
+                        );
+                        drawText(
+                            "タップ / クリック / Enter でもう一度",
+                            CX,
+                            420,
+                            16,
+                            "#889",
+                        );
+                        break;
+                    case S.WIN:
+                        fillScreen("rgba(0,0,0,.8)");
+                        drawText("本物のCLEAR！", CX, 280, 44, "#fd0");
+                        drawText("ちゃんと避けられたね", CX, 340, 20, "#fff");
+                        drawText(
+                            "タップ / クリック / Enter でもう一度",
+                            CX,
+                            420,
+                            16,
+                            "#889",
+                        );
+                        break;
+                }
+            }
 
-function drawOverlay() {
-  switch (state) {
-    case S.TITLE:
-      fillScreen('#10101c');
-      ctx.font = '72px serif'; ctx.textAlign = 'center';
-      ctx.fillText('👿', 240, 200);
-      drawText('世界一', 240, 290, 36, '#fff');
-      drawText('イライラするゲーム', 240, 340, 40, '#f55');
-      drawText('難しいんじゃない。イライラするだけ。', 240, 390, 15, '#889');
-      if (frame % 60 < 40) drawText('タップ / クリック / Enter でスタート', 240, 500, 22, '#fff');
-      drawText('移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動', 240, 560, 14, '#889');
-      break;
-    case S.GAG: {
-      const b = BTN_GAG_DONE;
-      fillScreen('rgba(0,0,40,.9)');
-      drawText('一発芸タイム！', 240, 200, 30, '#6af');
-      drawText(gagText, 240, 320, 28, '#fff');
-      ctx.fillStyle = '#6af'; ctx.fillRect(b.x, b.y, b.w, b.h);
-      drawText('やりました！', 240, 460, 22, '#012');
-      drawText('終わったらボタンを押してね', 240, 520, 14, '#889');
-      break;
-    }
-    case S.FAKE: {
-      const b = BTN_FAKE_RESTART;
-      fillScreen('#000');
-      drawText('GAME OVER', 240, 260, 52, '#e22');
-      ctx.fillStyle = '#ddd'; ctx.fillRect(b.x, b.y, b.w, b.h);
-      drawText('RESTART', 240, 380, 22, '#000');
-      drawText('5秒待つと？', W - 4, H - 4, 9, '#444', 'right');
-      break;
-    }
-    case S.FCLEAR:
-      drawText('CLEAR', 240, 320, 64, '#fd0');
-      break;
-    case S.OVER:
-      fillScreen('rgba(0,0,0,.8)');
-      drawText('GAME OVER', 240, 250, 48, '#e22');
-      drawText('👿「' + tauntText + '」', 240, 330, 22, '#fff');
-      drawText('タップ / クリック / Enter でもう一度', 240, 420, 16, '#889');
-      break;
-    case S.WIN:
-      fillScreen('rgba(0,0,0,.8)');
-      drawText('本物のCLEAR！', 240, 280, 44, '#fd0');
-      drawText('ちゃんと避けられたね', 240, 340, 20, '#fff');
-      drawText('タップ / クリック / Enter でもう一度', 240, 420, 16, '#889');
-      break;
-  }
-}
+            function draw() {
+                ctx.clearRect(0, 0, W, H);
+                if (state === S.SELECT) drawSelect();
+                else drawField();
+                drawOverlay();
+                if (keyDebug.t > 0)
+                    drawText(keyDebug.text, W - 6, H - 26, 11, "#8c8", "right");
+            }
 
-function draw() {
-  ctx.clearRect(0, 0, W, H);
-  if (state === S.SELECT) drawSelect();
-  else drawField();
-  drawOverlay();
-  if (keyDebug.t > 0) drawText(keyDebug.text, W - 6, H - 26, 11, '#8c8', 'right');
-}
+            /* =====================================================================
+             *  メインループ
+             * ===================================================================== */
+            // Fill the window: logical width follows the window aspect ratio (height stays 640).
+            // Narrower than 3:4 -> keep 480 wide and letterbox vertically; wider than MAX_W -> letterbox sideways.
+            function layout() {
+                const vw = window.innerWidth,
+                    vh = window.innerHeight;
+                const oldCX = CX;
+                W = Math.min(MAX_W, Math.max(MIN_W, Math.round((H * vw) / vh)));
+                CX = W / 2;
+                const scale = Math.min(vw / W, vh / H);
+                const cssW = W * scale,
+                    cssH = H * scale;
+                canvas.style.width = cssW + "px";
+                canvas.style.height = cssH + "px";
 
-/* =====================================================================
- *  メインループ
- * ===================================================================== */
-resetGame();
-let accumulator = 0, lastTime = performance.now();
-function loop(now) {
-  accumulator += Math.min(100, now - lastTime);
-  lastTime = now;
-  while (accumulator >= STEP_MS) { update(); accumulator -= STEP_MS; }
-  draw();
-  requestAnimationFrame(loop);
-}
-loop(lastTime);
-</script>
-</body>
+                // sharp rendering: backing store = displayed size in device pixels
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = Math.max(1, Math.round(cssW * dpr));
+                canvas.height = Math.max(1, Math.round(cssH * dpr));
+                ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+
+                // keep everything that depends on the width in sync
+                PLAYER_START.x = CX;
+                BTN_FAKE_RESTART.x = CX - BTN_FAKE_RESTART.w / 2;
+                BTN_GAG_DONE.x = CX - BTN_GAG_DONE.w / 2;
+                if (typeof player !== "undefined" && CX !== oldCX) {
+                    player.x += CX - oldCX; // stay at the same place relative to the center
+                    clampPlayer();
+                    boss.x += CX - oldCX;
+                }
+            }
+            window.addEventListener("resize", layout);
+            document.addEventListener("fullscreenchange", layout);
+
+            layout();
+            resetGame();
+            let accumulator = 0,
+                lastTime = performance.now();
+            function loop(now) {
+                accumulator += Math.min(100, now - lastTime);
+                lastTime = now;
+                while (accumulator >= STEP_MS) {
+                    update();
+                    accumulator -= STEP_MS;
+                }
+                draw();
+                requestAnimationFrame(loop);
+            }
+            loop(lastTime);
+        </script>
+    </body>
 </html>
