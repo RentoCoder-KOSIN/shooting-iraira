@@ -1,9 +1,9 @@
-<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>世界一イライラするゲーム</title><style>
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>世界一イライラするゲーム</title><style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 html,body{height:100%;margin:0;background:#0b0b14}
 body{display:flex;justify-content:center;align-items:center;font-family:sans-serif}
-canvas{height:100%;max-width:100%;aspect-ratio:3/4;background:#10101c;cursor:pointer}
+canvas{width:min(100vw,75vh);width:min(100vw,75dvh);height:auto;aspect-ratio:3/4;background:#10101c;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 </style></head><body><canvas id="c" width="480" height="640"></canvas><script>
 const C=document.getElementById('c'),X=C.getContext('2d'),W=480,H=640,PI=Math.PI;
 const K={},OC=['#f93','#f33','#39f','#3c3','#a4f'],HPS=[150,200,240,320];
@@ -17,6 +17,11 @@ onkeydown=e=>{K[e.key.toLowerCase()]=1;if(e.key.startsWith('Arrow'))e.preventDef
 onkeyup=e=>K[e.key.toLowerCase()]=0;
 C.onclick=e=>{const r=C.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
  if(S=='fake'&&x>170&&x<310&&y>340&&y<400)init();else act()};
+let tp=null;
+function tpos(e){const r=C.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
+C.addEventListener('pointerdown',e=>{if(e.pointerType=='mouse')return;tp={s:tpos(e),px:P.x,py:P.y};C.setPointerCapture(e.pointerId)});
+C.addEventListener('pointermove',e=>{if(!tp||(S!='play'&&S!='select'))return;const q=tpos(e);P.x=Math.max(8,Math.min(W-8,tp.px+(q.x-tp.s.x)));P.y=Math.max(8,Math.min(H-8,tp.py+(q.y-tp.s.y)))});
+C.addEventListener('pointerup',()=>{tp=null});C.addEventListener('pointercancel',()=>{tp=null});
 const aim=(x,y,t=P)=>Math.atan2(t.y-y,t.x-x);
 function B(x,y,a,s,o={}){bl.push({x,y,vx:Math.cos(a)*s*mul,vy:Math.sin(a)*s*mul,s:s*mul,r:5,col:'#f55',del:0,hm:0,ax:0,...o})}
 const ring=(x,y,n,s,off,o)=>{for(let i=0;i<n;i++)B(x,y,off+i*2*PI/n,s,o)};
@@ -76,12 +81,12 @@ function draw(){X.clearRect(0,0,W,H);
   if(P.inv%6<3){circ(P.x,P.y,9,dm>1?'#3c3':'#4df',0);circ(P.x,P.y,3,'#fff')}
   X.fillStyle='#333';X.fillRect(10,10,W-20,8);X.fillStyle='#e44';X.fillRect(10,10,(W-20)*Math.max(0,bs.hp)/bs.max,8);
   T('第'+'一二三四'[ph]+'形態',10,36,14,'#aab','left');T('♥'.repeat(Math.max(0,P.hp)),10,H-10,16,'#f66','left')}
- if(S=='title'){X.fillStyle='#10101c';X.fillRect(0,0,W,H);X.font='72px serif';X.textAlign='center';X.fillText('👿',240,200);T('世界一',240,290,36,'#fff');T('イライラするゲーム',240,340,40,'#f55');T('難しいんじゃない。イライラするだけ。',240,390,15,'#889');if(fr%60<40)T('クリック / Enter でスタート',240,500,22,'#fff');T('移動: WASD / 矢印キー　低速: Shift　攻撃: 自動',240,560,14,'#889')}
+ if(S=='title'){X.fillStyle='#10101c';X.fillRect(0,0,W,H);X.font='72px serif';X.textAlign='center';X.fillText('👿',240,200);T('世界一',240,290,36,'#fff');T('イライラするゲーム',240,340,40,'#f55');T('難しいんじゃない。イライラするだけ。',240,390,15,'#889');if(fr%60<40)T('タップ / クリック / Enter でスタート',240,500,22,'#fff');T('移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動',240,560,14,'#889')}
  if(S=='gag'){X.fillStyle='rgba(0,0,40,.9)';X.fillRect(0,0,W,H);T('一発芸タイム！',240,200,30,'#6af');T(gtxt,240,320,28,'#fff');X.fillStyle='#6af';X.fillRect(40,400,(W-80)*gt/360,10)}
  if(S=='fake'){X.fillStyle='#000';X.fillRect(0,0,W,H);T('GAME OVER',240,260,52,'#e22');X.fillStyle='#ddd';X.fillRect(170,340,140,60);T('RESTART',240,380,22,'#000');T('5秒待つと？',W-4,H-4,9,'#444','right')}
  if(S=='fclear'){T('CLEAR',240,320,64,'#fd0')}
- if(S=='over'){X.fillStyle='rgba(0,0,0,.8)';X.fillRect(0,0,W,H);T('GAME OVER',240,250,48,'#e22');T('👿「'+tt+'」',240,330,22,'#fff');T('クリック / Enter でもう一度',240,420,16,'#889')}
- if(S=='win'){X.fillStyle='rgba(0,0,0,.8)';X.fillRect(0,0,W,H);T('本物のCLEAR！',240,280,44,'#fd0');T('ちゃんと避けられたね',240,340,20,'#fff');T('クリック / Enter でもう一度',240,420,16,'#889')}}
+ if(S=='over'){X.fillStyle='rgba(0,0,0,.8)';X.fillRect(0,0,W,H);T('GAME OVER',240,250,48,'#e22');T('👿「'+tt+'」',240,330,22,'#fff');T('タップ / クリック / Enter でもう一度',240,420,16,'#889')}
+ if(S=='win'){X.fillStyle='rgba(0,0,0,.8)';X.fillRect(0,0,W,H);T('本物のCLEAR！',240,280,44,'#fd0');T('ちゃんと避けられたね',240,340,20,'#fff');T('タップ / クリック / Enter でもう一度',240,420,16,'#889')}}
 init();let acc=0,last=performance.now();
 (function loop(n){acc+=Math.min(100,n-last);last=n;while(acc>=16.67){step();acc-=16.67}draw();requestAnimationFrame(loop)})(last);
 </script></body></html>
