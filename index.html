@@ -6,17 +6,17 @@ body{display:flex;justify-content:center;align-items:center;font-family:sans-ser
 canvas{width:min(100vw,75vh);width:min(100vw,75dvh);height:auto;aspect-ratio:3/4;background:#10101c;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 </style></head><body><canvas id="c" width="480" height="640"></canvas><script>
 const C=document.getElementById('c'),X=C.getContext('2d'),W=480,H=640,PI=Math.PI;
-const K={},OC=['#f93','#f33','#39f','#3c3','#a4f'],HPS=[150,200,240,320];
+const K={},OC=['#f93','#f33','#39f','#3c3','#a4f'],HPS=[170,220,260,340];
 const GAG=['全力で変な顔をしてください','3秒間、最高にカッコいいポーズ','自分を褒めるセリフを言ってください','急にアイドルになってください','必殺技名を考えて叫んでください','自分の名前をめちゃくちゃカッコよく言って！','え〜♡ そんなこともできないの〜？','ねぇねぇ♡ がんばってぇ〜♡','えへへ♡ かわいいでしょ〜♡','お願い♡ 一回だけやってぇ〜♡','恥ずかしがらなくていいよ♡'];
 const TAUNT=['こんなんで負けちゃうんだ','ザッコ','よっわ','切り抜きよろしく〜','また勝っちゃった','なんで負けたか自分の悪かった点をどうぞ！','よわよわのいわし','うえええええええええええい勝ったあああああああ','今のは避けれたよね','なんで球に当たるのかな','まだ第◯形態だけど大丈夫？','今の攻撃きつかった？','(え、ヨワ)、笑'];
-let sel,S,P,bl,bm,sh,ob,Q,hist,mul,dm,ph,pt,pi,fr,bs,gt,ft,ct,gtxt,tt;
+let shift,sel,S,P,bl,bm,sh,ob,Q,hist,mul,dm,ph,pt,pi,fr,bs,gt,ft,ct,gtxt,tt;
 const pick=a=>a[Math.random()*a.length|0];
-function init(){S='title';sel=[0,0];P={x:240,y:580,hp:10,inv:0};bl=[];bm=[];sh=[];ob=[];Q=[];hist=[];mul=1;dm=1;ph=0;pt=0;pi=0;fr=0;bs={x:240,y:90,hp:HPS[0],max:HPS[0]}}
-function act(){if(S=='title')S='play';else if(S=='over'||S=='win')init()}
+function init(){S='title';sel=[0,0];shift=false;P={x:240,y:580,hp:8,inv:0};bl=[];bm=[];sh=[];ob=[];Q=[];hist=[];mul=1.1;dm=1;ph=0;pt=0;pi=0;fr=0;bs={x:240,y:90,hp:HPS[0],max:HPS[0]}}
+function act(){if(S=='gag')S='play';else if(S=='title')S='play';else if(S=='over'||S=='win')init()}
 onkeydown=e=>{K[e.key.toLowerCase()]=1;if(e.key.startsWith('Arrow'))e.preventDefault();if(e.key==='Enter'||e.key===' '){act();e.preventDefault()}};
 onkeyup=e=>K[e.key.toLowerCase()]=0;
 C.onclick=e=>{const r=C.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
- if(S=='fake'&&x>170&&x<310&&y>340&&y<400)init();else act()};
+ if(S=='fake'&&x>170&&x<310&&y>340&&y<400)init();else if(S=='gag'){if(x>150&&x<330&&y>420&&y<480)S='play'}else act()};
 let tp=null;
 function tpos(e){const r=C.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
 C.addEventListener('pointerdown',e=>{if(e.pointerType=='mouse')return;tp={s:tpos(e),px:P.x,py:P.y};C.setPointerCapture(e.pointerId)});
@@ -26,27 +26,28 @@ const aim=(x,y,t=P)=>Math.atan2(t.y-y,t.x-x);
 function B(x,y,a,s,o={}){bl.push({x,y,vx:Math.cos(a)*s*mul,vy:Math.sin(a)*s*mul,s:s*mul,r:5,col:'#f55',del:0,hm:0,ax:0,...o})}
 const ring=(x,y,n,s,off,o)=>{for(let i=0;i<n;i++)B(x,y,off+i*2*PI/n,s,o)};
 const PT={
-rep(t){if(t%60==0&&t<240){const c=t/60,a=aim(bs.x,bs.y);for(let i=-3;i<=3;i++)c<3?B(bs.x,bs.y+20,a+i*.17,3):B(bs.x,bs.y+20,a+i*.17,2.8,{ax:i%2?.015:-.015,col:'#ff0'})}},
+rep(t){if(t%60==0&&t<240){const c=t/60,a=aim(bs.x,bs.y);for(let i=-4;i<=4;i++)c<3?B(bs.x,bs.y+20,a+i*.17,3):B(bs.x,bs.y+20,a+i*.17,2.8,{ax:i%2?.015:-.015,col:'#ff0'})}},
 follow(t){if(t%100==0){B(W+8,P.y,PI,4.2,{col:'#5cf'});Q.push({t:28,f:()=>B(-8,P.y,0,4.6,{col:'#5cf'})})}if(t%100==50){B(P.x,-8,PI/2,4.2,{col:'#5cf'});Q.push({t:28,f:()=>B(P.x,H+8,-PI/2,4.6,{col:'#5cf'})})}},
-wall(t){if(t%22==0&&t<340){const g=240+Math.sin(t/22*.45)*150;for(let x=10;x<W;x+=24)if(Math.abs(x-g)>32)B(x,-8,PI/2,2.8,{r:6,col:'#f80'})}},
+wall(t){if(t%22==0&&t<340){const g=240+Math.sin(t/22*.45)*150;for(let x=10;x<W;x+=24)if(Math.abs(x-g)>28)B(x,-8,PI/2,2.8,{r:6,col:'#f80'})}},
 beam(t){if(t==10||t==130)bm.push({x:P.x,y:0,a:PI/2,da:0,warn:50,dur:30,w:18,refl:0});if(t%40==0)ring(bs.x,bs.y+20,10,2.2,t,{})},
 home(t){if(t%50==0&&t<250)B(t%100?360:120,100,aim(t%100?360:120,100),2.4,{hm:80,col:'#f6f',r:6})},
 trail(t){if(t%8==0)B(P.x,P.y,PI/2,1.5,{del:40,col:'#fa0',r:4});if(t%70==0)B(bs.x,bs.y+20,aim(bs.x,bs.y),2.4,{hm:60,col:'#f6f',r:6})},
 vbeam(t){if(t==0||t==150){const o=t?40:0;for(let i=0;i<6;i++)bm.push({x:40+i*80+o,y:0,a:PI/2,da:0,warn:70,dur:40,w:36,refl:0})}if(t%45==20)B(bs.x,bs.y+20,aim(bs.x,bs.y),3)},
 refl(t){if(t==0||t==150)for(const f of t?[.2,.8]:[.35,.65])bm.push({x:bs.x,y:bs.y+20,a:PI*f,da:0,warn:60,dur:70,w:12,refl:3});if(t%60==30)ring(bs.x,bs.y+20,12,2,t,{})},
-rep2(t){if(t%60==0&&t<240){const c=t/60,a=aim(bs.x,bs.y);for(let i=-3;i<=3;i++)B(bs.x,bs.y+20,a+i*.17,c<3?3:4.4,{col:c<3?'#f55':'#ff0'});if(c==3)Q.push({t:20,f:()=>ring(bs.x,bs.y+20,14,2.4,0,{col:'#ff0'})})}},
+rep2(t){if(t%60==0&&t<240){const c=t/60,a=aim(bs.x,bs.y);for(let i=-4;i<=4;i++)B(bs.x,bs.y+20,a+i*.17,c<3?3:4.4,{col:c<3?'#f55':'#ff0'});if(c==3)Q.push({t:20,f:()=>ring(bs.x,bs.y+20,14,2.4,0,{col:'#ff0'})})}},
 fake(t){if(t%40==0)B(bs.x,bs.y+20,aim(bs.x,bs.y+20,hist[0]||P),3.6,{col:'#0ff'});if(t%90==45)ring(bs.x,bs.y+20,8,2,0,{})},
 rot(t){if(t==0)bm.push({x:bs.x,y:bs.y+20,a:.2,da:.011,warn:40,dur:260,w:22,refl:0});if(t%30==0)ring(bs.x,bs.y+20,6,2.3,t*.07,{})},
 orbs(t){if(t%50==0&&t<300){const i=t/50;ob.push({x:70+(i*97)%340,y:-10,k:[1,2,3,4,0,4][i%6]})}if(t%45==0)ring(bs.x,bs.y+20,8,2.1,t,{})}};
 const DUR={rep:260,follow:300,wall:360,beam:260,home:330,trail:300,vbeam:300,refl:330,rep2:260,fake:300,rot:320,orbs:320};
 const SEQ=[[['rep'],['follow'],['wall'],['beam']],[['home'],['trail'],['vbeam'],['refl']],[['rep2'],['fake'],['rot'],['orbs']],[['rep2','home'],['rot','wall'],['refl','vbeam','fake'],['orbs','trail','follow'],['rot','vbeam','home','orbs']]];
-function take(k){S='play';k=ph==1?(k+4)%5:k;if(k==1){P.hp=10;mul=1.35}if(k==2){S='gag';gt=360;gtxt=pick(GAG)}if(k==3)dm=2;if(k==4){S='fake';ft=300}}
+function take(k){S='play';k=shift?(k+4)%5:k;if(k==1){P.hp=8;mul=1.5}if(k==2){S='gag';gt=360;gtxt=pick(GAG)}if(k==3)dm=2;if(k==4){S='fake';ft=300}}
 function hurt(){if(P.inv>0)return;P.hp-=dm;P.inv=60;if(P.hp<=0){S='over';tt=pick(TAUNT).replace('◯','一二三四'[ph])}}
 function move(){const s=K.shift?2:4;if(K.a||K.arrowleft)P.x-=s;if(K.d||K.arrowright)P.x+=s;if(K.w||K.arrowup)P.y-=s;if(K.s||K.arrowdown)P.y+=s;P.x=Math.max(8,Math.min(W-8,P.x));P.y=Math.max(8,Math.min(H-8,P.y))}
 function pts(b){let x=b.x,y=b.y,dx=Math.cos(b.a),dy=Math.sin(b.a),d=[[x,y]];for(let i=0;i<=b.refl;i++){const tx=dx>1e-6?(W-x)/dx:dx<-1e-6?-x/dx:1e9,ty=dy>1e-6?(H-y)/dy:dy<-1e-6?-y/dy:1e9,t=Math.min(tx,ty);x+=dx*t;y+=dy*t;d.push([x,y]);if(ty<=tx)break;dx=-dx}return d}
 function sd(px,py,a,b){const vx=b[0]-a[0],vy=b[1]-a[1],l=vx*vx+vy*vy||1,t=Math.max(0,Math.min(1,((px-a[0])*vx+(py-a[1])*vy)/l));return Math.hypot(px-a[0]-vx*t,py-a[1]-vy*t)}
 function play(){move();if(P.inv>0)P.inv--;hist.push({x:P.x,y:P.y});if(hist.length>60)hist.shift();
  bs.x=240+Math.sin(fr/120)*100;
+ if(ph>=1&&fr%270==135){const n=fr/270|0;ob.push({x:70+(n*131)%340,y:-10,k:[1,2,3,4,0,3,4,2,1,0][n%10]})}
  if(fr%8==0)sh.push({x:P.x-8,y:P.y-10},{x:P.x+8,y:P.y-10});
  sh=sh.filter(s=>{s.y-=10;if(Math.abs(s.x-bs.x)<42&&Math.abs(s.y-bs.y)<24){bs.hp--;return false}return s.y>-10});
  const seq=SEQ[ph][pi];for(const n of seq)if(pt<DUR[n])PT[n](pt);pt++;
@@ -59,15 +60,15 @@ function play(){move();if(P.inv>0)P.inv--;hist.push({x:P.x,y:P.y});if(hist.lengt
   return b.x>-20&&b.x<W+20&&b.y>-20&&b.y<H+20});
  bm=bm.filter(b=>{b.age=(b.age||0)+1;b.a+=b.da;if(b.age>b.warn&&b.age<=b.warn+b.dur){const p=pts(b);for(let i=0;i<p.length-1;i++)if(sd(P.x,P.y,p[i],p[i+1])<b.w/2+3)hurt()}return b.age<=b.warn+b.dur});
  ob=ob.filter(o=>{o.y+=1.8;if(Math.hypot(o.x-P.x,o.y-P.y)<16){take(o.k);return false}return o.y<H+20});
- if(ph<2&&!sel[ph]&&bs.hp>0&&bs.hp<=bs.max*.6){sel[ph]=1;S='select';bl=[];bm=[];Q=[];sh=[];P.x=240;P.y=580;return}
+ if(ph==1&&!sel[1]&&bs.hp>0&&bs.hp<=bs.max*.6){sel[1]=1;shift=true;S='select';bl=[];bm=[];Q=[];sh=[];P.x=240;P.y=580;return}
  if(bs.hp<=0&&S=='play'){bl=[];bm=[];Q=[];ob=[];pt=0;pi=0;
-  if(ph==3)S='win';else if(ph==2){S='fclear';ct=200}else{ph++;bs.hp=bs.max=HPS[ph]}}}
+  if(ph==3)S='win';else if(ph==2){S='fclear';ct=200}else{ph++;bs.hp=bs.max=HPS[ph];if(ph==1){S='select';P.x=240;P.y=580}}}}
 function step(){fr++;
  if(S=='select'){move();OC.forEach((c,i)=>{if(Math.hypot(80+i*80-P.x,300-P.y)<24)take(i)})}
  else if(S=='play')play();
- else if(S=='gag'){if(--gt<=0)S='play'}
+ 
  else if(S=='fake'){if(--ft<=0)S='play'}
- else if(S=='fclear'){if(--ct<=0){ph=3;bs.hp=bs.max=HPS[3];S='play'}}}
+ else if(S=='fclear'){if(--ct<=0){ph=3;shift=false;bs.hp=bs.max=HPS[3];S='play'}}}
 function T(s,x,y,sz,col,al='center'){X.textAlign=al;X.fillStyle=col;X.font='bold '+sz+'px sans-serif';while(X.measureText(s).width>440&&sz>10)X.font='bold '+(--sz)+'px sans-serif';X.fillText(s,x,y)}
 function circ(x,y,r,col,fill=1){X.beginPath();X.arc(x,y,r,0,7);if(fill){X.fillStyle=col;X.fill()}else{X.strokeStyle=col;X.lineWidth=2;X.stroke()}}
 function draw(){X.clearRect(0,0,W,H);
@@ -82,7 +83,7 @@ function draw(){X.clearRect(0,0,W,H);
   X.fillStyle='#333';X.fillRect(10,10,W-20,8);X.fillStyle='#e44';X.fillRect(10,10,(W-20)*Math.max(0,bs.hp)/bs.max,8);
   T('第'+'一二三四'[ph]+'形態',10,36,14,'#aab','left');T('♥'.repeat(Math.max(0,P.hp)),10,H-10,16,'#f66','left')}
  if(S=='title'){X.fillStyle='#10101c';X.fillRect(0,0,W,H);X.font='72px serif';X.textAlign='center';X.fillText('👿',240,200);T('世界一',240,290,36,'#fff');T('イライラするゲーム',240,340,40,'#f55');T('難しいんじゃない。イライラするだけ。',240,390,15,'#889');if(fr%60<40)T('タップ / クリック / Enter でスタート',240,500,22,'#fff');T('移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動',240,560,14,'#889')}
- if(S=='gag'){X.fillStyle='rgba(0,0,40,.9)';X.fillRect(0,0,W,H);T('一発芸タイム！',240,200,30,'#6af');T(gtxt,240,320,28,'#fff');X.fillStyle='#6af';X.fillRect(40,400,(W-80)*gt/360,10)}
+ if(S=='gag'){X.fillStyle='rgba(0,0,40,.9)';X.fillRect(0,0,W,H);T('一発芸タイム！',240,200,30,'#6af');T(gtxt,240,320,28,'#fff');X.fillStyle='#6af';X.fillRect(150,420,180,60);T('やりました！',240,460,22,'#012');T('終わったらボタンを押してね',240,520,14,'#889')}
  if(S=='fake'){X.fillStyle='#000';X.fillRect(0,0,W,H);T('GAME OVER',240,260,52,'#e22');X.fillStyle='#ddd';X.fillRect(170,340,140,60);T('RESTART',240,380,22,'#000');T('5秒待つと？',W-4,H-4,9,'#444','right')}
  if(S=='fclear'){T('CLEAR',240,320,64,'#fd0')}
  if(S=='over'){X.fillStyle='rgba(0,0,0,.8)';X.fillRect(0,0,W,H);T('GAME OVER',240,250,48,'#e22');T('👿「'+tt+'」',240,330,22,'#fff');T('タップ / クリック / Enter でもう一度',240,420,16,'#889')}
