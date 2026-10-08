@@ -144,12 +144,21 @@
 
             // Select screen orbs: c = color, k = effect (ORB.*). Edit this table to tune the lineup.
             const SELECT_ORBS = [
-                { c: "#f93", k: ORB.INVERT },
-                { c: "#f33", k: ORB.HEAL },
-                { c: "#39f", k: ORB.GAG },
-                { c: "#3c3", k: ORB.DOUBLE },
-                { c: "#a4f", k: ORB.FAKE },
+                { c: "#f93", n: "橙", k: ORB.INVERT },
+                { c: "#f33", n: "赤", k: ORB.HEAL },
+                { c: "#39f", n: "青", k: ORB.GAG },
+                { c: "#3c3", n: "緑", k: ORB.DOUBLE },
+                { c: "#a4f", n: "紫", k: ORB.FAKE },
             ];
+
+            // Legend shown on the first selection. Effects can change later, so the wording stays vague (".....").
+            const ORB_HINTS = {
+                [ORB.INVERT]: "なんだか世界が.....",
+                [ORB.HEAL]: "体力が.....",
+                [ORB.GAG]: "ちょっとした余興が.....",
+                [ORB.DOUBLE]: "痛みが.....",
+                [ORB.FAKE]: "終わった.....？",
+            };
 
             // 2nd selection only: the red and blue orbs swap abilities (indices into SELECT_ORBS).
             // Every other orb, and every falling orb, keeps its own ability.
@@ -170,7 +179,15 @@
             const ORB_ORDER_PATTERN = [1, 2, 3, 4, 0, 4];
 
             // 移動キー以外のキーで1回だけ使える回復(デバッグ表示つき)
-            const HEAL_SMALL = 2; // red orb: either +2 life or a full heal (50/50), boss gets stronger either way
+            // red orb: 80% -> +2 life & boss x1.3, 20% -> full heal & boss x1.5
+            const HEAL_SMALL = 2;
+            const HEAL_FULL_CHANCE = 0.2;
+            const BUFF_SMALL = 1.3;
+            const BUFF_FULL = 1.5;
+            const FAKE_INV_FRAMES = 300; // purple orb: 5 seconds of invincibility when the fake game over ends
+            // bullet pace (緩急): every bullet speeds up and slows down by the same sine law of its age
+            const PACE_AMP = 0.35; // +-35% around the base speed
+            const PACE_PERIOD = 120; // frames per cycle
             const INVERT_FRAMES = 600; // orange orb: controls reversed for 10 seconds
             const KEY_HEAL = 3; // 回復量
             const KEY_BOSS_BUFF = 0.1; // ボス強化(弾速倍率に加算)
@@ -509,6 +526,7 @@
                     del: 0, // 出現までの遅延フレーム
                     hm: 0, // 残りホーミングフレーム
                     ax: 0, // x方向加速度
+                    age: 0, // frames since it appeared (drives the pace)
                     ...opt,
                 });
             }
@@ -808,12 +826,13 @@
                         invertTimer = INVERT_FRAMES; // left/right and up/down reversed
                         break;
                     case ORB.HEAL:
-                        // +2 life or full heal, decided at random; the boss gets stronger either way
-                        player.hp =
-                            Math.random() < 0.5
-                                ? Math.min(PLAYER_MAX_HP, player.hp + HEAL_SMALL)
-                                : PLAYER_MAX_HP;
-                        speedMul = 1.5;
+                        if (Math.random() < HEAL_FULL_CHANCE) {
+                            player.hp = PLAYER_MAX_HP; // 20%: full heal, boss x1.5
+                            speedMul = Math.max(speedMul, BUFF_FULL);
+                        } else {
+                            player.hp = Math.min(PLAYER_MAX_HP, player.hp + HEAL_SMALL); // 80%: +2, boss x1.3
+                            speedMul = Math.max(speedMul, BUFF_SMALL);
+                        }
                         break;
                     case ORB.GAG:
                         state = S.GAG;
@@ -904,8 +923,10 @@
                         b.vy = Math.sin(a) * b.s;
                     }
                     b.vx += b.ax;
-                    b.x += b.vx;
-                    b.y += b.vy;
+                    const pace =
+                        1 + PACE_AMP * Math.sin((2 * PI * b.age++) / PACE_PERIOD);
+                    b.x += b.vx * pace;
+                    b.y += b.vy * pace;
                     if (Math.hypot(b.x - player.x, b.y - player.y) < b.r + 3)
                         hurtPlayer();
                     return (
@@ -1047,7 +1068,10 @@
                         if (gagLock > 0) gagLock--;
                         break;
                     case S.FAKE:
-                        if (--fakeTimer <= 0) state = S.PLAY;
+                        if (--fakeTimer <= 0) {
+                            state = S.PLAY;
+                            player.inv = FAKE_INV_FRAMES; // 5s invincibility on return
+                        }
                         break;
                     case S.FCLEAR:
                         if (--clearTimer <= 0) {
@@ -1100,6 +1124,14 @@
             function drawSelect() {
                 drawText("好きな玉を選んでください", CX, 240, 24, "#fff");
                 drawText("WASDで移動", CX, 400, 16, "#889");
+                if (!swapOrbs) {
+                    drawText("色玉の効果（途中で変わることがあります）", CX, 50, 15, "#aab");
+                    SELECT_ORBS.forEach((o, i) => {
+                        const y = 86 + i * 26;
+                        drawCircle(CX - 130, y - 5, 7, o.c);
+                        drawText(o.n + "玉　" + ORB_HINTS[o.k], CX - 112, y, 16, "#ddd", "left");
+                    });
+                }
                 SELECT_ORBS.forEach((o, i) => {
                     const q = selectOrbPos(i);
                     drawCircle(q.x, q.y, SEL_R, o.c);
