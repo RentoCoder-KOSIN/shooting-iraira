@@ -18,6 +18,7 @@ let CX = W / 2; // horizontal center
 
 const S = {
     TITLE: "title",
+    MODE: "mode",
     SELECT: "select",
     PLAY: "play",
     GAG: "gag",
@@ -30,12 +31,16 @@ const S = {
 const PLAYER_START = { x: 240, y: 580 }; // x follows the screen center (see layout())
 const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 }; // x follows the screen center
 const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x follows the screen center
+const MODE_BTN = { x: 90, y: 250, w: 300, h: 90, gap: 40 }; // mode select buttons (x follows the screen center)
+const modeBtn = (i) => ({ x: MODE_BTN.x, y: MODE_BTN.y + i * (MODE_BTN.h + MODE_BTN.gap), w: MODE_BTN.w, h: MODE_BTN.h });
 
 /* ---- game state ---- */
 let state; // current screen
 let player; // { x, y, hp, inv }
 let boss; // { x, y, hp, max }
 let bullets, beams, shots, orbs, queue, history;
+let gameMode = MODES[0]; // the chosen mode (see MODES in config.js)
+let modeIdx = 0; // highlighted entry on the mode select screen
 let speedMul; // bullet speed multiplier (grows with some orbs)
 let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
 let phase; // progress: the form you are on (0..3). Score and form changes use this
@@ -65,6 +70,14 @@ const fightForm = () => (detour ? 0 : phase);
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const rand = (a, b) => a + Math.random() * (b - a);
 
+// Mode select: apply the mode and start the run
+function chooseMode(i) {
+    modeIdx = i;
+    gameMode = MODES[i];
+    speedMul = gameMode.startSpeedMul;
+    state = S.PLAY;
+}
+
 function resetGame() {
     state = S.TITLE;
     swapOrbs = false;
@@ -80,7 +93,7 @@ function resetGame() {
     orbs = [];
     queue = [];
     history = [];
-    speedMul = START_SPEED_MUL;
+    speedMul = gameMode.startSpeedMul;
     dmgMul = 1;
     phase = 0;
     detour = false;
@@ -286,7 +299,7 @@ function finishRun(cleared) {
         splits: [...formSplits],
         rank: 0,
     };
-    if (!SCORE_ENABLED || usedAdmin) return;
+    if (!SCORE_ENABLED || usedAdmin || !gameMode.ranked) return;
     const token = ++runToken;
     setTimeout(() => {
         if (token === runToken && (state === S.OVER || state === S.WIN)) openScore();
@@ -373,7 +386,8 @@ function pressGagDone() {
 function advance() {
     if (state === S.TITLE) enterFullscreen(); // go fullscreen when the game starts
     if (state === S.GAG) pressGagDone(); // the keyboard goes through the same confirmations
-    else if (state === S.TITLE) state = S.PLAY;
+    else if (state === S.TITLE) state = S.MODE;
+    else if (state === S.MODE) chooseMode(modeIdx);
     else if (state === S.OVER || state === S.WIN) resetGame();
 }
 
@@ -424,6 +438,11 @@ window.addEventListener("keydown", (e) => {
         return;
     }
     keys[e.key.toLowerCase()] = true;
+    if (state === S.MODE && !e.repeat) {
+        const k = e.key.toLowerCase();
+        if (k === "w" || k === "arrowup") modeIdx = (modeIdx + MODES.length - 1) % MODES.length;
+        if (k === "s" || k === "arrowdown") modeIdx = (modeIdx + 1) % MODES.length;
+    }
     if (!e.repeat) {
         if (e.key.toLowerCase() === "f") toggleFullscreen();
         onOtherKey(e);
@@ -445,6 +464,10 @@ canvas.addEventListener("click", (e) => {
         if (inButton(p, BTN_FAKE_RESTART)) resetGame();
     } else if (state === S.GAG) {
         if (inButton(p, BTN_GAG_DONE)) pressGagDone();
+    } else if (state === S.MODE) {
+        MODES.forEach((_, i) => {
+            if (inButton(p, modeBtn(i))) chooseMode(i);
+        });
     } else {
         advance();
     }
@@ -942,6 +965,23 @@ function drawOverlay() {
             drawText("移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動", CX, 560, 14, "#889");
             drawScoreboard();
             break;
+        case S.MODE:
+            fillScreen("#10101c");
+            drawText("モードを選んでください", CX, 190, 28, "#fff");
+            MODES.forEach((m, i) => {
+                const b = modeBtn(i);
+                const sel = i === modeIdx;
+                ctx.fillStyle = sel ? m.color : "#2a2a3c";
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.strokeStyle = m.color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(b.x, b.y, b.w, b.h);
+                drawText(m.label, CX, b.y + 40, 28, sel ? "#000" : "#fff");
+                drawText(m.desc, CX, b.y + 70, 14, sel ? "#112" : "#aab");
+            });
+            drawText("W/S・矢印で選択、Enter か タップで決定", CX, 560, 14, "#889");
+            if (!MODES[modeIdx].ranked) drawText("※通常モードはランキングに登録されません", CX, 590, 12, "#fc3");
+            break;
         case S.GAG: {
             const b = BTN_GAG_DONE;
             fillScreen("rgba(0,0,40,.9)");
@@ -1021,6 +1061,7 @@ function layout() {
     PLAYER_START.x = CX;
     BTN_FAKE_RESTART.x = CX - BTN_FAKE_RESTART.w / 2;
     BTN_GAG_DONE.x = CX - BTN_GAG_DONE.w / 2;
+    MODE_BTN.x = CX - MODE_BTN.w / 2;
     if (typeof player !== "undefined" && CX !== oldCX) {
         player.x += CX - oldCX; // stay at the same place relative to the center
         clampPlayer();

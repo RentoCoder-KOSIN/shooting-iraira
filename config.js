@@ -73,10 +73,38 @@ const ORB_FALL_SPEED = 1.8; // pixels per frame
 const ORB_PICK_R = 16; // how close the player must be to take it
 const ORB_MARGIN_X = 70; // orbs do not fall closer than this to the left / right edge
 
-// ---- red orb (heals the boss a lot and you a little, but you take triple damage) ----
-const BOSS_HEAL_RATIO = 0.3; // the boss recovers this share of its max HP
-const RED_PLAYER_HEAL = 1; // the player recovers this many hearts
-const RED_DMG_MUL = 3; // from now on every hit costs this many hearts (stays until the game ends)
+// ---- red orb (heals the boss and you; the boss gets stronger: you take more damage) ----
+// The boss heal ratio and the damage multiplier depend on the mode (see MODES below).
+const RED_PLAYER_HEAL = 2; // the player recovers this many hearts
+
+// ---- game modes (chosen on the mode select screen after the title) ----
+//  startSpeedMul : bullet speed multiplier at the start of the run
+//  bossHealRatio : share of the boss max HP that the red orb gives back to the boss
+//  redDmgMul     : damage multiplier after taking the red orb (boss attack power up).
+//                  It only rises if it is not already that high (never lowers a bigger one).
+//  ranked        : true -> the run can be sent to the ranking
+const MODES = [
+    {
+        id: "hard",
+        label: "理不尽モード",
+        desc: "本命。赤玉の代償もきつい",
+        color: "#f55",
+        startSpeedMul: 1.1,
+        bossHealRatio: 0.3,
+        redDmgMul: 3,
+        ranked: true,
+    },
+    {
+        id: "normal",
+        label: "通常モード",
+        desc: "イライラするけど、覚えれば勝てる",
+        color: "#6af",
+        startSpeedMul: 1.0,
+        bossHealRatio: 0.2,
+        redDmgMul: 2,
+        ranked: false,
+    },
+];
 
 // ---- yellow orb (sends the boss back to form 1) ----
 // Taking it fights the form 1 boss (full HP, form 1 attacks). When that boss is beaten you
@@ -207,15 +235,16 @@ const ORBS = {
             invertTimer = INVERT_FRAMES;
         },
     },
-    // red: boss +30% HP, you +1 heart, but you take triple damage from now on
+    // red: you +2 hearts, boss HP up AND boss attack power up (damage taken rises to the mode's
+    // redDmgMul, only if it is not already that high)
     heal: {
         color: "#f33",
         name: "赤",
         hint: "ボスが.....",
         apply() {
-            boss.hp = Math.min(boss.max, boss.hp + Math.round(boss.max * BOSS_HEAL_RATIO));
             player.hp = Math.min(PLAYER_MAX_HP, player.hp + RED_PLAYER_HEAL);
-            dmgMul = Math.max(dmgMul, RED_DMG_MUL);
+            boss.hp = Math.min(boss.max, boss.hp + Math.round(boss.max * gameMode.bossHealRatio));
+            if (dmgMul < gameMode.redDmgMul) dmgMul = gameMode.redDmgMul; // attack power up (once)
         },
     },
     // blue: gag time (with confirmations)
