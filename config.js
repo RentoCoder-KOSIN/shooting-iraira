@@ -352,6 +352,8 @@ const PATHS = {
  *
  *  A pattern is { duration, run(t) }:
  *    duration : how many frames the pattern lasts
+ *    waitClear: (optional) a bullet type name. After `duration` ends, the next step does not
+ *               start until no bullet of that type is left on the screen
  *    run(t)   : called every frame, t = frames since the pattern started (0, 1, 2 ...)
  *
  *  TOOLS you can call inside run(t):
@@ -416,6 +418,7 @@ const PATTERNS = {
     // a wall of bullets with a moving gap. Odd rows are shifted (checkerboard).
     wall: {
         duration: 360,
+        waitClear: "wall", // the next step (beams etc.) waits until every "wall" bullet has left the screen
         run(t) {
             if (t % 22 !== 0 || t >= 340) return;
             // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.

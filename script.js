@@ -321,6 +321,7 @@ function shoot(type, x, y, angle, speed, opts = {}) {
     bullets.push({
         ...base,
         ...(base.randomTempo ? rollTempo() : { extraPace: null, tempoAt: 0, tempoLen: 0 }),
+        type, // the bullet type name (used by waitClear)
         x,
         y,
         vx: Math.cos(angle) * v,
@@ -417,7 +418,12 @@ function runPatterns() {
         if (patTime < p.duration) p.run(patTime);
     }
     patTime++;
-    if (patTime >= Math.max(...step.map((n) => PATTERNS[n].duration))) {
+    // A pattern with `waitClear` holds the next step until its bullets have left the screen
+    const waiting = step.some((n) => {
+        const type = PATTERNS[n].waitClear;
+        return type && bullets.some((b) => b.type === type);
+    });
+    if (!waiting && patTime >= Math.max(...step.map((n) => PATTERNS[n].duration))) {
         patTime = 0;
         patIdx = (patIdx + 1) % SEQUENCES[phase].length;
     }
