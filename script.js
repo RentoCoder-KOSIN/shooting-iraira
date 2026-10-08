@@ -46,6 +46,7 @@ let frame; // global frame counter
 let swapOrbs; // true during the 2nd selection
 let midPickDone; // the 2nd selection has happened
 let fakeTimer, clearTimer, gagText, tauntText;
+let fakeCount; // purple orbs taken in this run (decides how long the fake game over lasts)
 let invertTimer; // frames left of reversed controls
 let gagStep, gagLock; // gag confirmation progress / press cooldown
 let keyHealUsed; // the random-key heal was used
@@ -83,6 +84,7 @@ function resetGame() {
     phase = 0;
     detour = false;
     detourSave = null;
+    fakeCount = 0;
     patIdx = 0;
     patTime = 0;
     frame = 0;
@@ -905,7 +907,7 @@ function drawOverlay() {
             ctx.fillStyle = "#ddd";
             ctx.fillRect(b.x, b.y, b.w, b.h);
             drawText("RESTART", CX, 380, 22, "#000");
-            drawText("5秒待つと？", W - 4, H - 4, 9, "#444", "right");
+            drawText("待つと？", W - 4, H - 4, 9, "#444", "right"); // no number: the wait grows
             break;
         }
         case S.FCLEAR:

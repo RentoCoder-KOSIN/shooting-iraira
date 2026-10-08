@@ -88,7 +88,10 @@ const DETOUR_MAX_FORM = 3;
 
 // ---- other orbs ----
 const INVERT_FRAMES = 600; // orange: reversed controls for 10 seconds
-const FAKE_WAIT_FRAMES = 300; // purple: fake game over lasts 5 seconds
+// purple: the fake game over screen lasts longer every time you take one in the same run
+const FAKE_WAIT_FRAMES = 300; // 1st purple orb: 5 seconds
+const FAKE_WAIT_ADD_FRAMES = 120; // each further purple orb adds this much (2 seconds)
+const FAKE_WAIT_MAX_FRAMES = 1800; // the wait never gets longer than this (30 seconds)
 const FAKE_INV_FRAMES = 180; // purple: 3 seconds of invincibility afterwards (was 5)
 
 // ---- the "press the right random key" heal ----
@@ -252,14 +255,15 @@ const ORBS = {
             patTime = 0;
         },
     },
-    // purple: fake game over, then invincibility when it ends
+    // purple: fake game over (longer each time), then invincibility when it ends
     fake: {
         color: "#a4f",
         name: "紫",
         hint: "終わった.....？",
         apply() {
             state = S.FAKE;
-            fakeTimer = FAKE_WAIT_FRAMES;
+            fakeCount++;
+            fakeTimer = Math.min(FAKE_WAIT_MAX_FRAMES, FAKE_WAIT_FRAMES + (fakeCount - 1) * FAKE_WAIT_ADD_FRAMES);
         },
     },
 };
