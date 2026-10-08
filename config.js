@@ -73,16 +73,22 @@ const ORB_FALL_SPEED = 1.8; // pixels per frame
 const ORB_PICK_R = 16; // how close the player must be to take it
 const ORB_MARGIN_X = 70; // orbs do not fall closer than this to the left / right edge
 
-// ---- red orb (heal) ----
-const HEAL_SMALL = 2; // +2 life ...
-const HEAL_FULL_CHANCE = 0.2; // ... but 20% of the time it is a full heal
-const BUFF_SMALL = 1.3; // boss bullet speed after a small heal
-const BUFF_FULL = 1.5; // boss bullet speed after a full heal
+// ---- red orb (heals the BOSS, and the player takes triple damage) ----
+const BOSS_HEAL_RATIO = 0.3; // the boss recovers this share of its max HP
+const RED_DMG_MUL = 3; // from now on every hit costs this many hearts (stays until the game ends)
+
+// ---- yellow orb (sends the boss back to form 1) ----
+// Taking it fights the form 1 boss (full HP, form 1 attacks). Beating that boss counts as
+// beating the form you were in, so the next boss is the form AFTER the current one.
+// The orb only works in forms DETOUR_MIN_FORM..DETOUR_MAX_FORM (0 = form 1, 1 = form 2 ...),
+// so the final form cannot be skipped by a quick form 1 kill.
+const DETOUR_MIN_FORM = 1;
+const DETOUR_MAX_FORM = 2;
 
 // ---- other orbs ----
 const INVERT_FRAMES = 600; // orange: reversed controls for 10 seconds
 const FAKE_WAIT_FRAMES = 300; // purple: fake game over lasts 5 seconds
-const FAKE_INV_FRAMES = 300; // purple: 5 seconds of invincibility afterwards
+const FAKE_INV_FRAMES = 180; // purple: 3 seconds of invincibility afterwards (was 5)
 
 // ---- the "press the right random key" heal ----
 const KEY_HEAL = 3;
@@ -196,19 +202,14 @@ const ORBS = {
             invertTimer = INVERT_FRAMES;
         },
     },
-    // red: +2 life (80%) or full heal (20%), and the boss gets stronger
+    // red: the BOSS recovers HP, and the player takes triple damage from now on
     heal: {
         color: "#f33",
         name: "赤",
-        hint: "体力が.....",
+        hint: "ボスが.....",
         apply() {
-            if (Math.random() < HEAL_FULL_CHANCE) {
-                player.hp = PLAYER_MAX_HP;
-                speedMul = Math.max(speedMul, BUFF_FULL);
-            } else {
-                player.hp = Math.min(PLAYER_MAX_HP, player.hp + HEAL_SMALL);
-                speedMul = Math.max(speedMul, BUFF_SMALL);
-            }
+            boss.hp = Math.min(boss.max, boss.hp + Math.round(boss.max * BOSS_HEAL_RATIO));
+            dmgMul = Math.max(dmgMul, RED_DMG_MUL);
         },
     },
     // blue: gag time (with confirmations)
@@ -229,7 +230,23 @@ const ORBS = {
         name: "緑",
         hint: "痛みが.....",
         apply() {
-            dmgMul = 2;
+            dmgMul = Math.max(dmgMul, 2); // never lowers a bigger multiplier (red = 3)
+        },
+    },
+    // yellow: the boss goes back to form 1 (see DETOUR_* above)
+    back: {
+        color: "#fd0",
+        name: "黄",
+        hint: "時間が.....",
+        apply() {
+            if (detour || phase < DETOUR_MIN_FORM || phase > DETOUR_MAX_FORM) return; // no effect
+            detour = true;
+            boss.hp = boss.max = BOSS_HP[0];
+            bullets = []; // the attacks start over with form 1's first pattern
+            beams = [];
+            queue = [];
+            patIdx = 0;
+            patTime = 0;
         },
     },
     // purple: fake game over, then invincibility when it ends
@@ -250,8 +267,10 @@ const SELECT_ORBS = ["invert", "heal", "gag", "double", "fake"];
 const SWAP_ON_SECOND_PICK = ["heal", "gag"];
 
 // Orbs that fall from the sky (the position is random, the order is fixed)
-const ORB_ORDER_MAIN = ["heal", "gag", "double", "fake", "invert", "double", "fake", "gag", "heal", "invert"];
-const ORB_ORDER_PATTERN = ["heal", "gag", "double", "fake", "invert", "fake"];
+// (12 slots, red "heal" only once, yellow "back" once)
+const ORB_ORDER_MAIN = ["gag", "double", "fake", "invert", "back", "double", "fake", "gag", "heal", "invert", "fake", "double"];
+// Used by the "orbs" pattern: only the first 6 slots are ever used, so red is left out here.
+const ORB_ORDER_PATTERN = ["gag", "double", "fake", "invert", "fake", "back"];
 
 /* ============================================================================
  *  4. BULLET TYPES (弾の種類)

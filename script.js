@@ -37,8 +37,9 @@ let player; // { x, y, hp, inv }
 let boss; // { x, y, hp, max }
 let bullets, beams, shots, orbs, queue, history;
 let speedMul; // bullet speed multiplier (grows with some orbs)
-let dmgMul; // damage multiplier (green orb: 2)
-let phase; // form index (0..3)
+let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
+let phase; // progress: the form you are on (0..3). Score and form changes use this
+let detour; // true while fighting the form 1 boss because of the yellow orb
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
 let frame; // global frame counter
 let swapOrbs; // true during the 2nd selection
@@ -55,6 +56,9 @@ let lastRun; // the finished run: { form, cleared, formMs, totalMs, rank }
 let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
 let scoreOpen = false; // the name entry panel is open
 
+// The form that is actually being fought: form 1 during a detour, otherwise the progress form.
+// It decides the attack list, the form name on screen and the taunt.
+const fightForm = () => (detour ? 0 : phase);
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -76,6 +80,7 @@ function resetGame() {
     speedMul = START_SPEED_MUL;
     dmgMul = 1;
     phase = 0;
+    detour = false;
     patIdx = 0;
     patTime = 0;
     frame = 0;
@@ -503,7 +508,7 @@ function hurtPlayer() {
     player.inv = HURT_INVINCIBLE_FRAMES;
     if (player.hp <= 0) {
         state = S.OVER;
-        tauntText = pick(TAUNTS).replace("◯", FORM_NAMES[phase]);
+        tauntText = pick(TAUNTS).replace("◯", FORM_NAMES[fightForm()]);
         finishRun(false);
     }
 }
@@ -533,7 +538,7 @@ function updateShots() {
 }
 
 function runPatterns() {
-    const step = SEQUENCES[phase][patIdx];
+    const step = SEQUENCES[fightForm()][patIdx];
     for (const name of step) {
         const p = PATTERNS[name];
         if (patTime < p.duration) p.run(patTime);
@@ -546,7 +551,7 @@ function runPatterns() {
     });
     if (!waiting && patTime >= Math.max(...step.map((n) => PATTERNS[n].duration))) {
         patTime = 0;
-        patIdx = (patIdx + 1) % SEQUENCES[phase].length;
+        patIdx = (patIdx + 1) % SEQUENCES[fightForm()].length;
     }
 }
 
@@ -609,7 +614,7 @@ function updateOrbs() {
 
 // Form 2 at 60% boss HP: force the 2nd selection (red and blue swap abilities)
 function checkMidPick() {
-    if (phase === MID_PICK_FORM && !midPickDone && boss.hp > 0 && boss.hp <= boss.max * MID_PICK_HP_RATIO) {
+    if (fightForm() === MID_PICK_FORM && !midPickDone && boss.hp > 0 && boss.hp <= boss.max * MID_PICK_HP_RATIO) {
         midPickDone = true;
         swapOrbs = true;
         state = S.SELECT;
@@ -633,6 +638,7 @@ function checkBossDefeated() {
     orbs = [];
     patTime = 0;
     patIdx = 0;
+    detour = false; // beating the form 1 boss counts as beating the form you were in
     if (phase === 3) {
         state = S.WIN;
         finishRun(true);
@@ -800,14 +806,14 @@ function drawField() {
     // player shots and the player (blinks while invincible)
     ctx.fillStyle = "#9ef";
     shots.forEach((s) => ctx.fillRect(s.x - 1, s.y - 6, 3, 10));
-    if (player.inv % 6 < 3) drawPlayer(dmgMul > 1 ? "#3c3" : "#4df");
+    if (player.inv % 6 < 3) drawPlayer(dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
 
     // HUD
     ctx.fillStyle = "#333";
     ctx.fillRect(10, 10, W - 20, 8);
     ctx.fillStyle = "#e44";
     ctx.fillRect(10, 10, ((W - 20) * Math.max(0, boss.hp)) / boss.max, 8);
-    drawText("第" + FORM_NAMES[phase] + "形態", 10, 36, 14, "#aab", "left");
+    drawText("第" + FORM_NAMES[fightForm()] + "形態" + (detour ? "（戻された）" : ""), 10, 36, 14, "#aab", "left");
     drawText("♥".repeat(Math.max(0, player.hp)), 10, H - 10, 16, "#f66", "left");
     if (invincible) drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
     if (invertTimer > 0)
