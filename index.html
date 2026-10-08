@@ -139,12 +139,12 @@
             const FORM_NAMES = "一二三四";
 
             // 玉の種類(色の並び順と一致)
-            const ORB = { NORMAL: 0, HEAL: 1, GAG: 2, DOUBLE: 3, FAKE: 4 };
+            const ORB = { INVERT: 0, HEAL: 1, GAG: 2, DOUBLE: 3, FAKE: 4 };
             const ORB_COLORS = ["#f93", "#f33", "#39f", "#3c3", "#a4f"];
 
             // Select screen orbs: c = color, k = effect (ORB.*). Edit this table to tune the lineup.
             const SELECT_ORBS = [
-                { c: "#f93", k: ORB.NORMAL },
+                { c: "#f93", k: ORB.INVERT },
                 { c: "#f33", k: ORB.HEAL },
                 { c: "#39f", k: ORB.GAG },
                 { c: "#3c3", k: ORB.DOUBLE },
@@ -170,6 +170,8 @@
             const ORB_ORDER_PATTERN = [1, 2, 3, 4, 0, 4];
 
             // 移動キー以外のキーで1回だけ使える回復(デバッグ表示つき)
+            const HEAL_SMALL = 2; // red orb: either +2 life or a full heal (50/50), boss gets stronger either way
+            const INVERT_FRAMES = 600; // orange orb: controls reversed for 10 seconds
             const KEY_HEAL = 3; // 回復量
             const KEY_BOSS_BUFF = 0.1; // ボス強化(弾速倍率に加算)
             const KEY_DEBUG_FRAMES = 180;
@@ -248,6 +250,7 @@
             let swapOrbs; // true during the 2nd selection: red/blue abilities are swapped
             let midPickDone; // 第2形態の途中選択を済ませたか
             let fakeTimer, clearTimer, gagText, tauntText;
+            let invertTimer; // frames left of reversed controls (orange orb)
             let gagStep, gagLock; // gag confirmation progress (0 = first screen) / press cooldown
             let keyHealUsed; // ランダムキー回復を使ったか
             let secretKey; // 回復が発動する「ランダムな1キー」(ゲームごとに抽選)
@@ -268,6 +271,7 @@
                 swapOrbs = false;
                 midPickDone = false;
                 keyHealUsed = false;
+                invertTimer = 0;
                 secretKey = pick([...SECRET_KEY_CANDIDATES]);
                 keyDebug = { text: "", t: 0 };
                 player = {
@@ -472,8 +476,9 @@
             canvas.addEventListener("pointermove", (e) => {
                 if (!touch || (state !== S.PLAY && state !== S.SELECT)) return;
                 const q = canvasPoint(e);
-                player.x = touch.px + (q.x - touch.start.x);
-                player.y = touch.py + (q.y - touch.start.y);
+                const dir = invertTimer > 0 ? -1 : 1; // reversed while the orange orb is active
+                player.x = touch.px + dir * (q.x - touch.start.x);
+                player.y = touch.py + dir * (q.y - touch.start.y);
                 clampPlayer();
             });
             const endTouch = () => {
@@ -796,10 +801,17 @@
             function takeOrb(kind) {
                 state = S.PLAY;
                 switch (kind) {
+                    case ORB.INVERT:
+                        invertTimer = INVERT_FRAMES; // left/right and up/down reversed
+                        break;
                     case ORB.HEAL:
-                        player.hp = PLAYER_MAX_HP;
+                        // +2 life or full heal, decided at random; the boss gets stronger either way
+                        player.hp =
+                            Math.random() < 0.5
+                                ? Math.min(PLAYER_MAX_HP, player.hp + HEAL_SMALL)
+                                : PLAYER_MAX_HP;
                         speedMul = 1.5;
-                        break; // 全回復＋ボス強化
+                        break;
                     case ORB.GAG:
                         state = S.GAG;
                         gagStep = 0;
@@ -827,7 +839,7 @@
             }
 
             function movePlayer() {
-                const speed = keys.shift ? 2 : 4;
+                const speed = (keys.shift ? 2 : 4) * (invertTimer > 0 ? -1 : 1);
                 if (keys.a || keys.arrowleft) player.x -= speed;
                 if (keys.d || keys.arrowright) player.x += speed;
                 if (keys.w || keys.arrowup) player.y -= speed;
@@ -1012,6 +1024,8 @@
                 if (adminOpen) return; // paused while the admin panel is open
                 frame++;
                 if (keyDebug.t > 0) keyDebug.t--;
+                if (invertTimer > 0 && (state === S.PLAY || state === S.SELECT))
+                    invertTimer--;
                 switch (state) {
                     case S.SELECT:
                         movePlayer();
@@ -1157,6 +1171,15 @@
                 );
                 if (invincible)
                     drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
+                if (invertTimer > 0)
+                    drawText(
+                        "操作反転 " + Math.ceil(invertTimer / 60) + "秒",
+                        W - 10,
+                        H - 10,
+                        16,
+                        "#f93",
+                        "right",
+                    );
             }
 
             function drawOverlay() {
