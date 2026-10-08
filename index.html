@@ -528,7 +528,8 @@
                 Math.atan2(target.y - y, target.x - x);
             const aimFromBoss = () => aim(boss.x, boss.y);
 
-            function spawnBullet(x, y, angle, speed, opt = {}) {
+            // roll a tempo: mode "none" | "stop" | "dash", t1 = age when it changes, d = stop length
+            function rollTempo() {
                 const roll = Math.random();
                 const mode =
                     roll < TEMPO_STOP_CHANCE
@@ -536,10 +537,15 @@
                         : roll < TEMPO_STOP_CHANCE + TEMPO_DASH_CHANCE
                           ? "dash"
                           : "none";
+                return {
+                    mode,
+                    t1: mode === "stop" ? rand(20, 50) : rand(35, 70),
+                    d: rand(25, 55),
+                };
+            }
+            function spawnBullet(x, y, angle, speed, opt = {}) {
                 bullets.push({
-                    mode, // "none" | "stop" | "dash"
-                    t1: mode === "stop" ? rand(20, 50) : rand(35, 70), // age when the tempo changes
-                    d: rand(25, 55), // how long a "stop" bullet stays still
+                    ...rollTempo(), // each bullet rolls its own tempo unless opt overrides it
                     x,
                     y,
                     vx: Math.cos(angle) * speed * speedMul,
@@ -642,11 +648,14 @@
                         CX + Math.sin((t / 22) * 0.45 * (480 / W)) * 150 * (W / 480);
                     // odd rows are shifted by half the spacing -> 1010.. / 0101.. checkerboard
                     const shift = (t / 22) % 2 ? 12 : 0;
+                    // one tempo per row: the whole row stops / dashes together, so the row stays a straight line
+                    const tempo = rollTempo();
                     for (let x = 10 + shift; x < W; x += 24) {
                         if (Math.abs(x - gap) > GAP_HALF)
                             spawnBullet(x, -8, PI / 2, 2.8, {
                                 r: 6,
                                 col: "#f80",
+                                ...tempo,
                             });
                     }
                 },
