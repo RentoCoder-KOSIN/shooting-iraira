@@ -133,6 +133,7 @@ const SCORE_ENABLED = true; // false -> no ranking, no name entry
 const SCORE_API = ""; // "" = the server that serves this page. Or a full URL: "https://xxx.onrender.com"
 const SCORE_TOP_N = 10; // how many rows are shown on the title screen
 const SCORE_NAME_MAX = 12; // name length limit
+const SCORE_NA_TEXT = "NA"; // shown for a form that was not defeated in that run
 const SCORE_PROMPT_DELAY_MS = 900; // name entry opens this long after the run ends (avoids typing while still playing)
 const SCORE_REFETCH_MIN_MS = 5000; // do not reload the ranking more often than this
 const SCORE_NAME_KEY = "irritating-game:name"; // where the last used name is remembered (localStorage)

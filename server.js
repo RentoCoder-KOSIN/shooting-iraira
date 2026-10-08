@@ -3,7 +3,9 @@
  *  server.js - serves the game and keeps the shared ranking.
  *
  *    GET  /api/scores  -> { scores: [top 10] }
- *    POST /api/scores  -> { rank, scores }   body: { name, form, cleared, formMs, totalMs }
+ *    POST /api/scores  -> { rank, scores }   body: { name, form, cleared, formMs, totalMs, splits }
+ *      splits = [t1, t2, t3, t4]: the run time (ms) at which each form was defeated,
+ *               null for a form that was not defeated (shown as NA)
  *
  *  Storage:
  *    DATABASE_URL set   -> PostgreSQL (use this on Render; the data survives restarts)
@@ -41,6 +43,22 @@ function parseScore(body) {
     if (cleared && (form !== 4 || totalMs < MIN_CLEAR_MS))
         return bad("bad clear");
 
+    // splits: cumulative times at which forms 1..4 were defeated (null = not defeated)
+    let splits = null;
+    if (b.splits !== undefined && b.splits !== null) {
+        if (!Array.isArray(b.splits) || b.splits.length !== 4) return bad("bad splits");
+        const defeated = cleared ? 4 : form - 1; // forms before the reached one are defeated
+        let prev = 0;
+        for (let i = 0; i < 4; i++) {
+            const v = b.splits[i];
+            if (i < defeated) {
+                if (!Number.isInteger(v) || v < prev || v > totalMs) return bad("bad splits");
+                prev = v;
+            } else if (v !== null) return bad("bad splits");
+        }
+        splits = b.splits;
+    }
+
     let name = typeof b.name === "string" ? b.name : "";
     name = name
         .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -48,7 +66,7 @@ function parseScore(body) {
         .trim();
     name = [...name].slice(0, NAME_MAX).join("");
     if (!name) name = "名無し";
-    return { score: { name, form, cleared, formMs, totalMs } };
+    return { score: { name, form, cleared, formMs, totalMs, splits } };
 }
 
 /* ---------- storage: PostgreSQL ---------- */
@@ -79,6 +97,8 @@ async function createPgStore(url) {
             total_ms   INTEGER NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`);
+    // added later: the time each form was defeated (old rows keep NULL)
+    await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS splits JSONB");
     const ORDER =
         "cleared DESC, CASE WHEN cleared THEN total_ms END ASC, form DESC, form_ms DESC, id ASC";
     const toRow = (r) => ({
@@ -87,12 +107,13 @@ async function createPgStore(url) {
         cleared: r.cleared,
         formMs: r.form_ms,
         totalMs: r.total_ms,
+        splits: r.splits || null,
     });
     return {
         kind: "postgres",
         async top(n) {
             const r = await pool.query(
-                `SELECT name, form, cleared, form_ms, total_ms FROM scores ORDER BY ${ORDER} LIMIT $1`,
+                `SELECT name, form, cleared, form_ms, total_ms, splits FROM scores ORDER BY ${ORDER} LIMIT $1`,
                 [n],
             );
             return r.rows.map(toRow);
@@ -106,8 +127,8 @@ async function createPgStore(url) {
                 [s.cleared, s.totalMs, s.form, s.formMs],
             );
             await pool.query(
-                "INSERT INTO scores (name, form, cleared, form_ms, total_ms) VALUES ($1, $2, $3, $4, $5)",
-                [s.name, s.form, s.cleared, s.formMs, s.totalMs],
+                "INSERT INTO scores (name, form, cleared, form_ms, total_ms, splits) VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
+                [s.name, s.form, s.cleared, s.formMs, s.totalMs, s.splits ? JSON.stringify(s.splits) : null],
             );
             return r.rows[0].n + 1;
         },

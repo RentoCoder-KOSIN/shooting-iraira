@@ -52,6 +52,7 @@ let gagStep, gagLock; // gag confirmation progress / press cooldown
 let keyHealUsed; // the random-key heal was used
 let secretKey; // the one key that heals (chosen at random every game)
 let keyDebug; // { text, t } debug text of the last pressed key
+let formSplits; // run time (ms) at the moment each form was defeated, null = not defeated yet
 let runFrames, formFrames; // frames spent actually playing: whole run / current form (this is the score)
 let usedAdmin; // invincible mode was on at some point in this run -> not recorded
 let lastRun; // the finished run: { form, cleared, formMs, totalMs, rank }
@@ -90,6 +91,7 @@ function resetGame() {
     frame = 0;
     runFrames = 0;
     formFrames = 0;
+    formSplits = [null, null, null, null];
     invincible = false; // admin mode is NOT carried over to the next run
     adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
@@ -210,8 +212,12 @@ function fmtTime(ms) {
     const t = Math.floor(ms / 100);
     return Math.floor(t / 600) + ":" + String(Math.floor((t % 600) / 10)).padStart(2, "0") + "." + (t % 10);
 }
-// one line of the ranking: CLEAR time, or the form reached + time in that form
-const runLabel = (r) => (r.cleared ? "CLEAR " + fmtTime(r.totalMs) : r.form + "形態 " + fmtTime(r.formMs));
+// The 4 split times of a ranking row. Old records have no splits: a cleared one still knows its
+// last split (= the clear time), everything else is unknown.
+function splitsOf(r) {
+    if (Array.isArray(r.splits)) return r.splits;
+    return [null, null, null, r.cleared ? r.totalMs : null];
+}
 
 async function fetchScores(force = false) {
     if (!SCORE_ENABLED) return;
@@ -235,6 +241,7 @@ function finishRun(cleared) {
         cleared,
         formMs: Math.round(formFrames * STEP_MS),
         totalMs: Math.round(runFrames * STEP_MS),
+        splits: [...formSplits],
         rank: 0,
     };
     if (!SCORE_ENABLED || usedAdmin) return;
@@ -276,7 +283,7 @@ async function submitScore() {
         const res = await fetch(SCORE_API + "/api/scores", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, form: run.form, cleared: run.cleared, formMs: run.formMs, totalMs: run.totalMs }),
+            body: JSON.stringify({ name, form: run.form, cleared: run.cleared, formMs: run.formMs, totalMs: run.totalMs, splits: run.splits }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
@@ -652,6 +659,7 @@ function checkBossDefeated() {
         patIdx = detourSave.patIdx;
         return;
     }
+    formSplits[phase] = Math.round(runFrames * STEP_MS); // time at which this form was defeated
     if (phase === 3) {
         state = S.WIN;
         finishRun(true);
@@ -833,7 +841,8 @@ function drawField() {
         drawText("操作反転 " + Math.ceil(invertTimer / 60) + "秒", W - 10, H - 10, 16, "#f93", "right");
 }
 
-// top 10 in the top-left corner of the title screen
+// top 10 at the top of the title screen: "rank. name" and the 4 split times (right edges of the columns)
+const SCORE_COLS_X = [196, 260, 324, 388];
 function drawScoreboard() {
     if (!SCORE_ENABLED) return;
     ctx.textAlign = "left";
@@ -841,6 +850,10 @@ function drawScoreboard() {
     ctx.font = "bold 12px sans-serif";
     ctx.fillText("TOP " + SCORE_TOP_N, 10, 22);
     ctx.font = "10px sans-serif";
+    // column headers: the time at which each form was defeated
+    ctx.fillStyle = "#889";
+    ctx.textAlign = "right";
+    SCORE_COLS_X.forEach((x, k) => ctx.fillText("第" + FORM_NAMES[k], x, 22));
     if (!scoreboard.rows.length) {
         ctx.fillStyle = "#889";
         const msg = { loading: "読み込み中…", error: "ランキングを取得できません", ok: "まだ記録がありません" }[scoreboard.status];
@@ -848,12 +861,15 @@ function drawScoreboard() {
         return;
     }
     scoreboard.rows.slice(0, SCORE_TOP_N).forEach((r, i) => {
-        const y = 40 + i * 15;
+        const y = 40 + i * 14;
         ctx.fillStyle = i === 0 ? "#fd0" : "#ccd";
         ctx.textAlign = "left";
-        ctx.fillText(i + 1 + ". " + r.name, 10, y, 100);
+        ctx.fillText(i + 1 + ". " + r.name, 10, y, 140); // "rank. name"
         ctx.textAlign = "right";
-        ctx.fillText(runLabel(r), 190, y);
+        splitsOf(r).forEach((ms, k) => {
+            ctx.fillStyle = ms == null ? "#667" : i === 0 ? "#fd0" : "#ccd";
+            ctx.fillText(ms == null ? SCORE_NA_TEXT : fmtTime(ms), SCORE_COLS_X[k], y);
+        });
     });
 }
 
@@ -876,8 +892,8 @@ function drawOverlay() {
             fillScreen("#10101c");
             ctx.font = "72px serif";
             ctx.textAlign = "center";
-            ctx.fillText("👿", CX, 200);
-            drawText("世界一", CX, 290, 36, "#fff");
+            ctx.fillText("👿", CX, 240);
+            drawText("世界一", CX, 295, 36, "#fff");
             drawText("イライラするゲーム", CX, 340, 40, "#f55");
             drawText("難しいんじゃない。イライラするだけ。", CX, 390, 15, "#889");
             if (frame % 60 < 40) drawText("タップ / クリック / Enter でスタート", CX, 500, 22, "#fff");
