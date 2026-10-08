@@ -73,17 +73,18 @@ const ORB_FALL_SPEED = 1.8; // pixels per frame
 const ORB_PICK_R = 16; // how close the player must be to take it
 const ORB_MARGIN_X = 70; // orbs do not fall closer than this to the left / right edge
 
-// ---- red orb (heals the BOSS, and the player takes triple damage) ----
+// ---- red orb (heals the boss a lot and you a little, but you take triple damage) ----
 const BOSS_HEAL_RATIO = 0.3; // the boss recovers this share of its max HP
+const RED_PLAYER_HEAL = 1; // the player recovers this many hearts
 const RED_DMG_MUL = 3; // from now on every hit costs this many hearts (stays until the game ends)
 
 // ---- yellow orb (sends the boss back to form 1) ----
-// Taking it fights the form 1 boss (full HP, form 1 attacks). Beating that boss counts as
-// beating the form you were in, so the next boss is the form AFTER the current one.
-// The orb only works in forms DETOUR_MIN_FORM..DETOUR_MAX_FORM (0 = form 1, 1 = form 2 ...),
-// so the final form cannot be skipped by a quick form 1 kill.
+// Taking it fights the form 1 boss (full HP, form 1 attacks). When that boss is beaten you
+// return to the form you were in, with the boss HP it had when you took the orb.
+// Example: take it in form 3 -> fight form 1 -> beat it -> back to form 3.
+// The orb only works in forms DETOUR_MIN_FORM..DETOUR_MAX_FORM (0 = form 1, 1 = form 2 ...).
 const DETOUR_MIN_FORM = 1;
-const DETOUR_MAX_FORM = 2;
+const DETOUR_MAX_FORM = 3;
 
 // ---- other orbs ----
 const INVERT_FRAMES = 600; // orange: reversed controls for 10 seconds
@@ -202,13 +203,14 @@ const ORBS = {
             invertTimer = INVERT_FRAMES;
         },
     },
-    // red: the BOSS recovers HP, and the player takes triple damage from now on
+    // red: boss +30% HP, you +1 heart, but you take triple damage from now on
     heal: {
         color: "#f33",
         name: "赤",
         hint: "ボスが.....",
         apply() {
             boss.hp = Math.min(boss.max, boss.hp + Math.round(boss.max * BOSS_HEAL_RATIO));
+            player.hp = Math.min(PLAYER_MAX_HP, player.hp + RED_PLAYER_HEAL);
             dmgMul = Math.max(dmgMul, RED_DMG_MUL);
         },
     },
@@ -233,13 +235,14 @@ const ORBS = {
             dmgMul = Math.max(dmgMul, 2); // never lowers a bigger multiplier (red = 3)
         },
     },
-    // yellow: the boss goes back to form 1 (see DETOUR_* above)
+    // yellow: fight the form 1 boss, then return to the form you were in (see DETOUR_* above)
     back: {
         color: "#fd0",
         name: "黄",
         hint: "時間が.....",
         apply() {
-            if (detour || phase < DETOUR_MIN_FORM || phase > DETOUR_MAX_FORM) return; // no effect
+            if (detour || boss.hp <= 0 || phase < DETOUR_MIN_FORM || phase > DETOUR_MAX_FORM) return; // no effect
+            detourSave = { hp: boss.hp, max: boss.max, patIdx }; // restored when the form 1 boss is beaten
             detour = true;
             boss.hp = boss.max = BOSS_HP[0];
             bullets = []; // the attacks start over with form 1's first pattern

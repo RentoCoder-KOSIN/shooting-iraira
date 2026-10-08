@@ -40,6 +40,7 @@ let speedMul; // bullet speed multiplier (grows with some orbs)
 let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
 let phase; // progress: the form you are on (0..3). Score and form changes use this
 let detour; // true while fighting the form 1 boss because of the yellow orb
+let detourSave; // { hp, max, patIdx } of the form to return to after the detour
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
 let frame; // global frame counter
 let swapOrbs; // true during the 2nd selection
@@ -81,6 +82,7 @@ function resetGame() {
     dmgMul = 1;
     phase = 0;
     detour = false;
+    detourSave = null;
     patIdx = 0;
     patTime = 0;
     frame = 0;
@@ -640,7 +642,14 @@ function checkBossDefeated() {
     orbs = [];
     patTime = 0;
     patIdx = 0;
-    detour = false; // beating the form 1 boss counts as beating the form you were in
+    if (detour) {
+        // the form 1 boss is beaten: go back to the form we came from, with the HP it had
+        detour = false;
+        boss.hp = detourSave.hp;
+        boss.max = detourSave.max;
+        patIdx = detourSave.patIdx;
+        return;
+    }
     if (phase === 3) {
         state = S.WIN;
         finishRun(true);
