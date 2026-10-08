@@ -239,7 +239,7 @@ const TAUNTS = [
  *
  *  EXAMPLE - a new orb that gives 1 life:
  *    life1: { color: "#fd0", name: "黄", hint: "ちょっと.....",
- *             apply() { player.hp = Math.min(PLAYER_MAX_HP, player.hp + 1); } },
+ *             apply() { player.hp = Math.min(playerMaxHp, player.hp + 1); } },
  *  Then add "life1" to SELECT_ORBS (and/or the ORB_ORDER lists below).
  * ========================================================================== */
 const ORBS = {
@@ -259,7 +259,7 @@ const ORBS = {
         name: "赤",
         hint: "ボスが.....",
         apply() {
-            player.hp = Math.min(PLAYER_MAX_HP, player.hp + RED_PLAYER_HEAL);
+            player.hp = Math.min(playerMaxHp, player.hp + RED_PLAYER_HEAL);
             boss.hp = Math.min(boss.max, boss.hp + Math.round(boss.max * gameMode.bossHealRatio));
             if (dmgMul < gameMode.redDmgMul) dmgMul = gameMode.redDmgMul; // attack power up (once)
         },

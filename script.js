@@ -93,7 +93,10 @@ function resetGame() {
     invertTimer = 0;
     secretKey = pick([...SECRET_KEY_CANDIDATES]);
     keyDebug = { text: "", t: 0 };
-    player = { x: PLAYER_START.x, y: PLAYER_START.y, hp: PLAYER_MAX_HP, inv: 0 };
+    attackMul = 1; // admin sliders are NOT carried over to the next run
+    playerMaxHp = PLAYER_MAX_HP;
+    syncAdminSliders();
+    player = { x: PLAYER_START.x, y: PLAYER_START.y, hp: playerMaxHp, inv: 0 };
     bullets = [];
     beams = [];
     shots = [];
@@ -172,6 +175,8 @@ const keys = {};
 let adminOpen = false; // while true the game is paused and keys go to the panel
 let adminAuthed = false; // stays true until the page is reloaded
 let invincible = false; // admin: no damage
+let attackMul = 1; // admin: damage of each player shot to the boss (slider)
+let playerMaxHp = PLAYER_MAX_HP; // admin: max HP of the player (slider); also used by every heal
 
 const adminEl = document.getElementById("admin");
 const adminLogin = document.getElementById("admin-login");
@@ -179,6 +184,10 @@ const adminPanel = document.getElementById("admin-panel");
 const adminPass = document.getElementById("admin-pass");
 const adminMsg = document.getElementById("admin-msg");
 const adminInv = document.getElementById("admin-inv");
+const adminAtk = document.getElementById("admin-atk");
+const adminAtkVal = document.getElementById("admin-atk-val");
+const adminHp = document.getElementById("admin-hp");
+const adminHpVal = document.getElementById("admin-hp-val");
 const adminReset = document.getElementById("admin-reset");
 const adminResetMsg = document.getElementById("admin-reset-msg");
 let adminPassUsed = ""; // the password accepted at login (re-checked by the server on reset)
@@ -194,6 +203,7 @@ function showAdminView() {
     adminMsg.textContent = "";
     adminPass.value = "";
     adminInv.checked = invincible;
+    syncAdminSliders();
     disarmReset();
     adminResetMsg.textContent = "";
     (adminAuthed ? adminInv : adminPass).focus();
@@ -224,6 +234,28 @@ adminPass.addEventListener("keydown", (e) => {
     if (e.key === "Enter") tryAdminLogin();
 });
 document.getElementById("admin-ok").addEventListener("click", tryAdminLogin);
+// show the current slider values (attackMul / playerMaxHp) in the panel
+function syncAdminSliders() {
+    adminAtk.value = attackMul;
+    adminAtkVal.textContent = attackMul;
+    adminHp.value = playerMaxHp;
+    adminHpVal.textContent = playerMaxHp;
+}
+// a run with a changed slider is not recorded in the ranking (same as invincible mode)
+function markAdminIfChanged() {
+    if (attackMul !== 1 || playerMaxHp !== PLAYER_MAX_HP) usedAdmin = true;
+}
+adminAtk.addEventListener("input", () => {
+    attackMul = Number(adminAtk.value);
+    adminAtkVal.textContent = attackMul;
+    markAdminIfChanged();
+});
+adminHp.addEventListener("input", () => {
+    playerMaxHp = Number(adminHp.value);
+    adminHpVal.textContent = playerMaxHp;
+    if (player) player.hp = playerMaxHp; // moving the slider also refills the HP
+    markAdminIfChanged();
+});
 adminInv.addEventListener("change", () => {
     invincible = adminInv.checked;
     if (invincible) usedAdmin = true; // a run played with invincibility is not recorded
@@ -429,7 +461,7 @@ function onOtherKey(e) {
             note = " → 使用済み";
         } else {
             keyHealUsed = true;
-            player.hp = Math.min(PLAYER_MAX_HP, player.hp + KEY_HEAL);
+            player.hp = Math.min(playerMaxHp, player.hp + KEY_HEAL);
             speedMul += KEY_BOSS_BUFF;
             note = " → 回復! ボス強化";
         }
@@ -622,7 +654,7 @@ function updateShots() {
     shots = shots.filter((s) => {
         s.y -= PLAYER_SHOT_SPEED;
         if (Math.abs(s.x - boss.x) < BOSS_HIT_HALF_W && Math.abs(s.y - boss.y) < BOSS_HIT_HALF_H) {
-            boss.hp--;
+            boss.hp -= attackMul; // 1 normally, more with the admin slider
             return false;
         }
         return s.y > -10;
@@ -918,8 +950,11 @@ function drawField() {
         "第" + FORM_NAMES[fightForm()] + "形態" + (formTitle ? "「" + formTitle + "」" : "") + (detour ? "（戻された）" : ""),
         10, 36, 14, "#aab", "left"
     );
-    drawText("♥".repeat(Math.max(0, player.hp)), 10, H - 10, 16, "#f66", "left");
+    // many hearts would not fit: show "♥×N" above 16
+    drawText(player.hp > 16 ? "♥×" + player.hp : "♥".repeat(Math.max(0, player.hp)), 10, H - 10, 16, "#f66", "left");
     if (invincible) drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
+    if (attackMul !== 1 || playerMaxHp !== PLAYER_MAX_HP)
+        drawText("ADMIN: 攻撃力×" + attackMul + " 体力" + playerMaxHp, W - 10, invincible ? 52 : 36, 12, "#fc3", "right");
     if (invertTimer > 0)
         drawText("操作反転 " + Math.ceil(invertTimer / 60) + "秒", W - 10, H - 10, 16, "#f93", "right");
 }

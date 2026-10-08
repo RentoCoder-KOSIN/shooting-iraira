@@ -110,6 +110,24 @@ canvas {
     cursor: pointer;
 }
 
+/* slider rows of the admin panel (attack power / max HP) */
+.admin-box label.range {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    margin-top: 12px;
+}
+
+.admin-box label.range b {
+    color: #fc3;
+}
+
+.admin-box input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: #6af;
+}
+
 #admin-msg,
 #admin-reset-msg,
 #score-msg {

@@ -41,6 +41,14 @@
                         ><input type="checkbox" id="admin-inv" />
                         無敵モード</label
                     >
+                    <label class="range">
+                        <span>攻撃力 ×<b id="admin-atk-val">1</b></span>
+                        <input type="range" id="admin-atk" min="1" max="20" step="1" value="1" />
+                    </label>
+                    <label class="range">
+                        <span>体力 <b id="admin-hp-val">8</b></span>
+                        <input type="range" id="admin-hp" min="1" max="50" step="1" value="8" />
+                    </label>
                     <button id="admin-reset" class="danger">
                         全スコアボードをリセット
                     </button>
