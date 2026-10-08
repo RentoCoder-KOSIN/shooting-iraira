@@ -4,7 +4,7 @@
  *
  *    GET  /api/scores  -> { scores: [top 10] }
  *    POST /api/scores  -> { rank, scores }   body: { name, form, cleared, formMs, totalMs, splits }
- *      splits = [t1, t2, t3, t4]: the run time (ms) at which each form was defeated,
+ *      splits = [t1, ... t7] (4 entries for old records): the run time (ms) at which each form was defeated,
  *               null for a form that was not defeated (shown as NA)
  *
  *    POST /api/scores/reset -> { ok: true, scores: [] }   body: { password }
@@ -29,6 +29,8 @@ const path = require("path");
 const PORT = process.env.PORT || 3000;
 const TOP_N = 10;
 const NAME_MAX = 12;
+const FORM_COUNTS = [4, 7]; // possible numbers of forms (4 = old records, 7 = 理不尽モード)
+const MAX_FORMS = Math.max(...FORM_COUNTS);
 const MAX_MS = 6 * 60 * 60 * 1000; // no run is longer than 6 hours
 const MIN_CLEAR_MS = 45 * 1000; // a real CLEAR cannot be faster than this
 const POST_LIMIT = { max: 6, windowMs: 60 * 1000 }; // per IP
@@ -40,22 +42,25 @@ function parseScore(body) {
     const b = body && typeof body === "object" ? body : {};
     const { form, cleared, formMs, totalMs } = b;
     const bad = (error) => ({ error });
-    if (!Number.isInteger(form) || form < 1 || form > 4) return bad("bad form");
+    if (!Number.isInteger(form) || form < 1 || form > MAX_FORMS) return bad("bad form");
     if (typeof cleared !== "boolean") return bad("bad cleared");
     if (!Number.isInteger(formMs) || !Number.isInteger(totalMs))
         return bad("bad time");
     if (formMs < 0 || totalMs < 500 || totalMs > MAX_MS || formMs > totalMs)
         return bad("bad time");
-    if (cleared && (form !== 4 || totalMs < MIN_CLEAR_MS))
+    if (cleared && (!FORM_COUNTS.includes(form) || totalMs < MIN_CLEAR_MS))
         return bad("bad clear");
 
-    // splits: cumulative times at which forms 1..4 were defeated (null = not defeated)
+    // splits: cumulative times at which each form was defeated (null = not defeated)
+    // 4 entries (old records / 通常モード) or 7 entries (理不尽モード)
     let splits = null;
     if (b.splits !== undefined && b.splits !== null) {
-        if (!Array.isArray(b.splits) || b.splits.length !== 4) return bad("bad splits");
-        const defeated = cleared ? 4 : form - 1; // forms before the reached one are defeated
+        if (!Array.isArray(b.splits) || !FORM_COUNTS.includes(b.splits.length)) return bad("bad splits");
+        const n = b.splits.length;
+        if (form > n || (cleared && form !== n)) return bad("bad splits");
+        const defeated = cleared ? n : form - 1; // forms before the reached one are defeated
         let prev = 0;
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < n; i++) {
             const v = b.splits[i];
             if (i < defeated) {
                 if (!Number.isInteger(v) || v < prev || v > totalMs) return bad("bad splits");

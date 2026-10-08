@@ -43,7 +43,7 @@ let gameMode = MODES[0]; // the chosen mode (see MODES in config.js)
 let modeIdx = 0; // highlighted entry on the mode select screen
 let speedMul; // bullet speed multiplier (grows with some orbs)
 let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
-let phase; // progress: the form you are on (0..3). Score and form changes use this
+let phase; // progress: the form you are on (0 .. formCount() - 1). Score and form changes use this
 let detour; // true while fighting the form 1 boss because of the yellow orb
 let detourSave; // { hp, max, patIdx } of the form to return to after the detour
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
@@ -67,6 +67,10 @@ let scoreOpen = false; // the name entry panel is open
 // The form that is actually being fought: form 1 during a detour, otherwise the progress form.
 // It decides the attack list, the form name on screen and the taunt.
 const fightForm = () => (detour ? 0 : phase);
+// Per-mode values: the number of forms, the HP of a form and the attack lists come from the chosen mode
+const formCount = () => gameMode.bossHp.length;
+const bossHpOf = (i) => gameMode.bossHp[i];
+const sequencesOf = () => gameMode.sequences;
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -75,6 +79,9 @@ function chooseMode(i) {
     modeIdx = i;
     gameMode = MODES[i];
     speedMul = gameMode.startSpeedMul;
+    // the number of forms depends on the mode: prepare the first form and the split times
+    boss.hp = boss.max = bossHpOf(0);
+    formSplits = Array(formCount()).fill(null);
     state = S.PLAY;
 }
 
@@ -104,7 +111,7 @@ function resetGame() {
     frame = 0;
     runFrames = 0;
     formFrames = 0;
-    formSplits = [null, null, null, null];
+    formSplits = Array(formCount()).fill(null);
     invincible = false; // admin mode is NOT carried over to the next run
     adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
@@ -112,7 +119,7 @@ function resetGame() {
     runToken++;
     closeScore();
     fetchScores(); // refresh the ranking shown on the title screen
-    boss = { x: CX, y: BOSS_START_Y, hp: BOSS_HP[0], max: BOSS_HP[0] };
+    boss = { x: CX, y: BOSS_START_Y, hp: bossHpOf(0), max: bossHpOf(0) };
 }
 
 /* ---- config check: gives a clear message when a name has a typo ---- */
@@ -122,10 +129,16 @@ function checkConfig() {
     };
     for (const id of [...SELECT_ORBS, ...SWAP_ON_SECOND_PICK, ...ORB_ORDER_MAIN, ...ORB_ORDER_PATTERN])
         if (!ORBS[id]) fail('unknown orb "' + id + '" (see ORBS)');
-    for (const form of SEQUENCES)
-        for (const step of form)
-            for (const name of step)
-                if (!PATTERNS[name]) fail('unknown pattern "' + name + '" in SEQUENCES (see PATTERNS)');
+    for (const m of MODES) {
+        if (!m.bossHp || !m.sequences) fail('mode "' + m.id + '" needs bossHp and sequences');
+        if (m.sequences.length !== m.bossHp.length)
+            fail('mode "' + m.id + '": sequences (' + m.sequences.length + ') and bossHp (' + m.bossHp.length + ") must have the same length");
+        if (m.bossHp.length > FORM_NAMES.length) fail("FORM_NAMES is too short for mode \"" + m.id + '"');
+        for (const form of m.sequences)
+            for (const step of form)
+                for (const name of step)
+                    if (!PATTERNS[name]) fail('unknown pattern "' + name + '" in the sequences of mode "' + m.id + '" (see PATTERNS)');
+    }
     for (const [name, t] of Object.entries(BULLET_TYPES)) {
         const type = { ...BULLET_DEFAULTS, ...t };
         if (!PATHS[type.path]) fail('bullet type "' + name + '": unknown path "' + type.path + '"');
@@ -267,8 +280,9 @@ function fmtTime(ms) {
     const t = Math.floor(ms / 100);
     return Math.floor(t / 600) + ":" + String(Math.floor((t % 600) / 10)).padStart(2, "0") + "." + (t % 10);
 }
-// The 4 split times of a ranking row. Old records have no splits: a cleared one still knows its
-// last split (= the clear time), everything else is unknown.
+// The split times of a ranking row (4 for old records, 7 for the 7-form 理不尽 mode). Old records
+// have no splits: a cleared one still knows its last split (= the clear time), everything else is
+// unknown. Missing entries are shown as NA.
 function splitsOf(r) {
     if (Array.isArray(r.splits)) return r.splits;
     return [null, null, null, r.cleared ? r.totalMs : null];
@@ -616,7 +630,7 @@ function updateShots() {
 }
 
 function runPatterns() {
-    const step = SEQUENCES[fightForm()][patIdx];
+    const step = sequencesOf()[fightForm()][patIdx];
     for (const name of step) {
         const p = PATTERNS[name];
         if (patTime < p.duration) p.run(patTime);
@@ -629,7 +643,7 @@ function runPatterns() {
     });
     if (!waiting && patTime >= Math.max(...step.map((n) => PATTERNS[n].duration))) {
         patTime = 0;
-        patIdx = (patIdx + 1) % SEQUENCES[fightForm()].length;
+        patIdx = (patIdx + 1) % sequencesOf()[fightForm()].length;
     }
 }
 
@@ -725,16 +739,16 @@ function checkBossDefeated() {
         return;
     }
     formSplits[phase] = Math.round(runFrames * STEP_MS); // time at which this form was defeated
-    if (phase === 3) {
+    if (phase === formCount() - 1) {
         state = S.WIN;
         finishRun(true);
-    } else if (phase === 2) {
-        state = S.FCLEAR; // the fake "CLEAR"
+    } else if (phase === formCount() - 2) {
+        state = S.FCLEAR; // the fake "CLEAR" (before the last form)
         clearTimer = FCLEAR_FRAMES;
     } else {
         phase++;
         formFrames = 0;
-        boss.hp = boss.max = BOSS_HP[phase];
+        boss.hp = boss.max = bossHpOf(phase);
         if (phase === 1) {
             state = S.SELECT;
             player.x = PLAYER_START.x;
@@ -798,10 +812,10 @@ function update() {
             break;
         case S.FCLEAR:
             if (--clearTimer <= 0) {
-                phase = 3;
+                phase = formCount() - 1; // the last form
                 formFrames = 0;
                 swapOrbs = false;
-                boss.hp = boss.max = BOSS_HP[3];
+                boss.hp = boss.max = bossHpOf(phase);
                 state = S.PLAY;
             }
             break;
@@ -899,22 +913,26 @@ function drawField() {
     ctx.fillRect(10, 10, W - 20, 8);
     ctx.fillStyle = "#e44";
     ctx.fillRect(10, 10, ((W - 20) * Math.max(0, boss.hp)) / boss.max, 8);
-    drawText("第" + FORM_NAMES[fightForm()] + "形態" + (detour ? "（戻された）" : ""), 10, 36, 14, "#aab", "left");
+    const formTitle = gameMode.formTitles && gameMode.formTitles[fightForm()]; // 理不尽 forms 5-7 have a subtitle
+    drawText(
+        "第" + FORM_NAMES[fightForm()] + "形態" + (formTitle ? "「" + formTitle + "」" : "") + (detour ? "（戻された）" : ""),
+        10, 36, 14, "#aab", "left"
+    );
     drawText("♥".repeat(Math.max(0, player.hp)), 10, H - 10, 16, "#f66", "left");
     if (invincible) drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
     if (invertTimer > 0)
         drawText("操作反転 " + Math.ceil(invertTimer / 60) + "秒", W - 10, H - 10, 16, "#f93", "right");
 }
 
-// top 10 at the top of the title screen: "rank. name" and the 4 split times (right edges of the columns)
-const SCORE_COLS_X = [196, 260, 324, 388];
+// top 10 at the top of the title screen: "rank. name" and the 7 split times (right edges of the columns)
+const SCORE_COLS_X = [170, 220, 270, 320, 370, 420, 470];
 function drawScoreboard() {
     if (!SCORE_ENABLED) return;
     ctx.textAlign = "left";
     ctx.fillStyle = "#fc3";
     ctx.font = "bold 12px sans-serif";
     ctx.fillText("TOP " + SCORE_TOP_N, 10, 22);
-    ctx.font = "10px sans-serif";
+    ctx.font = "9px sans-serif";
     // column headers: the time at which each form was defeated
     ctx.fillStyle = "#889";
     ctx.textAlign = "right";
@@ -929,11 +947,13 @@ function drawScoreboard() {
         const y = 40 + i * 14;
         ctx.fillStyle = i === 0 ? "#fd0" : "#ccd";
         ctx.textAlign = "left";
-        ctx.fillText(i + 1 + ". " + r.name, 10, y, 140); // "rank. name"
+        ctx.fillText(i + 1 + ". " + r.name, 10, y, 100); // "rank. name"
         ctx.textAlign = "right";
-        splitsOf(r).forEach((ms, k) => {
+        const sp = splitsOf(r);
+        SCORE_COLS_X.forEach((x, k) => {
+            const ms = sp[k];
             ctx.fillStyle = ms == null ? "#667" : i === 0 ? "#fd0" : "#ccd";
-            ctx.fillText(ms == null ? SCORE_NA_TEXT : fmtTime(ms), SCORE_COLS_X[k], y);
+            ctx.fillText(ms == null ? SCORE_NA_TEXT : fmtTime(ms), x, y);
         });
     });
 }

@@ -10,7 +10,7 @@
  *   4. BULLET TYPES    the look and behavior presets of bullets
  *   5. PACE (緩急)     how a bullet speeds up / slows down / stops
  *   6. PATHS (軌道)    how a bullet curves or homes
- *   7. ATTACK PATTERNS what the boss fires, and in what order (SEQUENCES)
+ *   7. ATTACK PATTERNS what the boss fires, and in what order (SEQUENCES / SEQUENCES_HARD)
  *
  *  QUICK RECIPES
  *  -------------
@@ -43,8 +43,11 @@ const PLAYER_HIT_R = 3; // the real hit box is tiny
 const HURT_INVINCIBLE_FRAMES = 60; // invincibility after being hit
 
 // ---- boss ----
-const BOSS_HP = [170, 220, 260, 340]; // HP of each form
-const FORM_NAMES = "一二三四"; // used in "第◯形態"
+const BOSS_HP = [170, 220, 260, 340]; // HP of each form (通常モード: 4 forms)
+const BOSS_HP_HARD = [170, 220, 260, 340, 380, 440, 560]; // 理不尽モード: 7 forms
+// Subtitle shown in the HUD for the 理不尽 forms (null = no subtitle)
+const FORM_TITLES_HARD = [null, null, null, null, "覚えた奴ほど死ぬ", "プレイヤー対策", "最終理不尽"];
+const FORM_NAMES = "一二三四五六七"; // used in "第◯形態" (the 理不尽 mode has 7 forms)
 const START_SPEED_MUL = 1.1; // every bullet speed is multiplied by this (grows with some orbs)
 const BOSS_START_Y = 90; // boss y position
 const BOSS_MUZZLE_Y = 20; // bullets / beams come out this many pixels below the boss
@@ -77,17 +80,27 @@ const ORB_MARGIN_X = 70; // orbs do not fall closer than this to the left / righ
 // The boss heal ratio and the damage multiplier depend on the mode (see MODES below).
 const RED_PLAYER_HEAL = 2; // the player recovers this many hearts
 
+const DETOUR_MAX_FORM = 3; // yellow orb: last form (0 = form 1) where it works in 通常モード
+
 // ---- game modes (chosen on the mode select screen after the title) ----
 //  startSpeedMul : bullet speed multiplier at the start of the run
 //  bossHealRatio : share of the boss max HP that the red orb gives back to the boss
 //  redDmgMul     : damage multiplier after taking the red orb (boss attack power up).
 //                  It only rises if it is not already that high (never lowers a bigger one).
 //  ranked        : true -> the run can be sent to the ranking
+//  bossHp        : HP of each form. Its length = the number of forms of the mode
+//  formTitles    : subtitle of each form shown in the HUD (optional)
+//  detourMaxForm : last form where the yellow orb works
+//  sequences     : attack lists of the mode (set at the bottom of this file)
 const MODES = [
     {
         id: "hard",
         label: "理不尽モード",
-        desc: "本命。赤玉の代償もきつい",
+        desc: "本命。全7形態。赤玉の代償もきつい",
+        bossHp: BOSS_HP_HARD, // one entry per form = the number of forms
+        formTitles: FORM_TITLES_HARD,
+        detourMaxForm: 5, // yellow orb works up to this form (0 = form 1)
+        // sequences: attached at the bottom of this file (SEQUENCES_HARD)
         color: "#f55",
         startSpeedMul: 1.1,
         bossHealRatio: 0.3,
@@ -97,7 +110,11 @@ const MODES = [
     {
         id: "normal",
         label: "通常モード",
-        desc: "イライラするけど、覚えれば勝てる",
+        desc: "イライラするけど、覚えれば勝てる（全4形態）",
+        bossHp: BOSS_HP,
+        formTitles: [],
+        detourMaxForm: DETOUR_MAX_FORM,
+        // sequences: attached at the bottom of this file (SEQUENCES)
         color: "#6af",
         startSpeedMul: 1.0,
         bossHealRatio: 0.2,
@@ -112,7 +129,7 @@ const MODES = [
 // Example: take it in form 3 -> fight form 1 -> beat it -> back to form 3.
 // The orb only works in forms DETOUR_MIN_FORM..DETOUR_MAX_FORM (0 = form 1, 1 = form 2 ...).
 const DETOUR_MIN_FORM = 1;
-const DETOUR_MAX_FORM = 3;
+// (DETOUR_MAX_FORM is defined above MODES; the 理不尽 mode overrides it with detourMaxForm)
 
 // ---- other orbs ----
 const INVERT_FRAMES = 600; // orange: reversed controls for 10 seconds
@@ -274,7 +291,7 @@ const ORBS = {
         name: "黄",
         hint: "時間が.....",
         apply() {
-            if (detour || boss.hp <= 0 || phase < DETOUR_MIN_FORM || phase > DETOUR_MAX_FORM) return; // no effect
+            if (detour || boss.hp <= 0 || phase < DETOUR_MIN_FORM || phase > gameMode.detourMaxForm) return; // no effect
             detourSave = { hp: boss.hp, max: boss.max, patIdx }; // restored when the form 1 boss is beaten
             detour = true;
             boss.hp = boss.max = BOSS_HP[0];
@@ -345,6 +362,25 @@ const BULLET_TYPES = {
     wall: { r: 6, color: "#f80", path: "wallPath", paces: ["wallPace"], randomTempo: false },
     homing: { r: 6, color: "#f6f", path: "homing", homeFrames: 80 }, // chases the player for a while
     trail: { r: 4, color: "#fa0", delay: 40 }, // left behind the player, appears later
+
+    // ---- 理不尽 mode bullets (used by the forms 5-7 patterns). All of them have a FIXED timing
+    // (randomTempo: false) so the player can learn them. ----
+    // looks exactly like "normal", but at the last moment (age = lateAt) it aims at you once
+    lateHome: { color: "#f55", path: "lateHome", lateAt: 40, randomTempo: false },
+    // flies, STOPS (holdLen frames), then every bullet of the volley sets off toward you together
+    freeze: { r: 5, color: "#8cf", path: "freezeAim", paces: ["wave", "holdPace"], holdAt: 28, holdLen: 70, randomTempo: false },
+    // goes out, then turns around and comes back the same way (age = turnAt)
+    boomerang: { r: 6, color: "#6f6", path: "boomerang", turnAt: 60, randomTempo: false },
+    // bursts into a small ring of normal bullets (age = splitAt)
+    splitter: { r: 7, color: "#fc6", path: "splitter", splitAt: 50, randomTempo: false },
+    // big and slow
+    big: { r: 11, color: "#e8e", randomTempo: false },
+    // starts slow and keeps speeding up
+    accel: { r: 5, color: "#9f9", paces: ["wave", "ramp"], randomTempo: false },
+    // appears (faint) at its spawn point, and only starts moving after `delay` frames
+    lag: { r: 5, color: "#ddd", delay: 35, randomTempo: false },
+    // curves, and the curve gets weaker and weaker (pass { turn: -0.03 } to curve the other way)
+    swirl: { r: 4, color: "#4fc", path: "swirlFade", turn: 0.03, randomTempo: false },
 };
 
 /* ============================================================================
@@ -376,6 +412,12 @@ const PACES = {
 
     // example (not used yet): linearly slows down to 30% over one second
     slowDown: (b) => Math.max(0.3, 1 - b.age / 85),
+
+    // freeze bullets: normal speed, then stopped for holdLen frames, then normal again
+    holdPace: (b) => (b.age < b.holdAt ? 1 : b.age < b.holdAt + b.holdLen ? 0 : 1),
+
+    // accel bullets: crawls at first, then speeds up to about twice the normal speed
+    ramp: (b) => Math.min(2.2, 0.35 + b.age / 40),
 
     // wall bullets: the speed factor depends on the GAME time, not on the bullet's age,
     // so every wall bullet gets the same factor in the same frame (see wallFactor)
@@ -416,6 +458,54 @@ const PATHS = {
     wallPath: (b) => {
         b.vx = 0;
         b.vy = WALL_SPEED * speedMul;
+    },
+
+    // lateHome: once, at age = lateAt, aims at the player (a bit faster), then goes straight
+    lateHome: (b) => {
+        if (b.age === b.lateAt) {
+            const a = aim(b.x, b.y);
+            b.vx = Math.cos(a) * b.speed * 1.15;
+            b.vy = Math.sin(a) * b.speed * 1.15;
+        }
+    },
+
+    // freezeAim: when the stop ends (age = holdAt + holdLen) it aims at where the player is NOW
+    freezeAim: (b) => {
+        if (b.age === b.holdAt + b.holdLen) {
+            const a = aim(b.x, b.y);
+            b.vx = Math.cos(a) * b.speed * 1.3;
+            b.vy = Math.sin(a) * b.speed * 1.3;
+        }
+    },
+
+    // boomerang: reverses the direction once, at age = turnAt
+    boomerang: (b) => {
+        if (b.age === b.turnAt) {
+            b.vx = -b.vx;
+            b.vy = -b.vy;
+        }
+    },
+
+    // splitter: at age = splitAt the bullet disappears and 8 small bullets fly out of that spot.
+    // (A path cannot add bullets directly, so later() is used; moving b.x far away removes this one.)
+    splitter: (b) => {
+        if (b.age === b.splitAt) {
+            const x = b.x,
+                y = b.y,
+                a = aim(x, y);
+            b.x = -999;
+            later(1, () => ring("normal", x, y, 8, 2.2, a, { r: 4 }));
+        }
+    },
+
+    // swirlFade: like "curve", but `turn` shrinks every frame, so the bullet bends once and then flies straight
+    swirlFade: (b) => {
+        const c = Math.cos(b.turn),
+            s = Math.sin(b.turn);
+        const vx = b.vx * c - b.vy * s;
+        b.vy = b.vx * s + b.vy * c;
+        b.vx = vx;
+        b.turn *= 0.98;
     },
 
     // turns by `turn` radians every frame: use { path: "curve", turn: 0.02 }
@@ -498,6 +588,46 @@ function startWallEvent() {
     wallNextEvent = frame + slow + len + rand(...WALL_EVENT_GAP);
 }
 
+// The wall pattern as a function: dir = 1 sweeps the gap to the right first, dir = -1 (mirrored) to the left first.
+function wallRun(t, dir) {
+    if (t === 0) {
+        wallRows = 0;
+        wallScroll = WALL_ROW_SPACING; // fires the first row right away
+        wallEvent = null;
+        wallNextEvent = frame + rand(...WALL_EVENT_GAP);
+    }
+    if (t >= 340) return;
+    if (frame >= wallNextEvent) startWallEvent();
+    // how far the wall moves in this frame (bullets move by exactly this much)
+    const v = WALL_SPEED * speedMul * wallFactor();
+    wallScroll += v;
+    if (wallScroll < WALL_ROW_SPACING) return;
+    wallScroll -= WALL_ROW_SPACING;
+    // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
+    const gap = CX + dir * Math.sin(wallRows * 0.45 * (480 / W)) * 150 * (W / 480);
+    const shift = wallRows % 2 ? 12 : 0;
+    const y = -8 + wallScroll - v; // exact spacing even when the wall is fast
+    for (let x = 10 + shift; x < W; x += 24) {
+        if (Math.abs(x - gap) > GAP_HALF) shoot("wall", x, y, PI / 2, WALL_SPEED);
+    }
+    wallRows++;
+}
+
+// ---- state of the 理不尽 patterns "habit" (行動記録) and "camper" (同じ場所禁止) ----
+let habitSide = 0; // side (-1 left / +1 right) at the last check, 0 = no check yet
+let habitSame = 0; // checks in a row on the same side
+let habitFlip = 0; // side changes in a row
+let camperN = 0; // checks in a row where the player barely moved
+
+// "habit": the boss watches which half of the screen you stand in. These rules are FIXED:
+//   - same half at 2 checks in a row  -> that half gets sealed by vertical beams
+//   - left/right/left (2 switches)    -> the half you are about to go to gets sealed
+// sealing = vertical beams (80 px apart, gaps of 44 px) over one half; the warning lasts 1 second.
+function sealSide(side) {
+    for (let d = 40; d < W / 2; d += 80)
+        beam({ x: CX + side * d, y: 0, angle: PI / 2, warn: 60, dur: 40, width: 36 });
+}
+
 const PATTERNS = {
     // fan shots; from the 4th volley the shots bend sideways
     rep: {
@@ -538,27 +668,7 @@ const PATTERNS = {
         duration: 360,
         waitClear: "wall", // the next step (beams etc.) waits until every "wall" bullet has left the screen
         run(t) {
-            if (t === 0) {
-                wallRows = 0;
-                wallScroll = WALL_ROW_SPACING; // fires the first row right away
-                wallEvent = null;
-                wallNextEvent = frame + rand(...WALL_EVENT_GAP);
-            }
-            if (t >= 340) return;
-            if (frame >= wallNextEvent) startWallEvent();
-            // how far the wall moves in this frame (bullets move by exactly this much)
-            const v = WALL_SPEED * speedMul * wallFactor();
-            wallScroll += v;
-            if (wallScroll < WALL_ROW_SPACING) return;
-            wallScroll -= WALL_ROW_SPACING;
-            // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
-            const gap = CX + Math.sin(wallRows * 0.45 * (480 / W)) * 150 * (W / 480);
-            const shift = wallRows % 2 ? 12 : 0;
-            const y = -8 + wallScroll - v; // exact spacing even when the wall is fast
-            for (let x = 10 + shift; x < W; x += 24) {
-                if (Math.abs(x - gap) > GAP_HALF) shoot("wall", x, y, PI / 2, WALL_SPEED);
-            }
-            wallRows++;
+            wallRun(t, 1);
         },
     },
 
@@ -683,6 +793,146 @@ const PATTERNS = {
             if (t % 45 === 0) bossRing("normal", 8, 2.1, t);
         },
     },
+
+    /* ======================================================================
+     *  理不尽モード patterns (forms 5-7). Every one has a fixed rule, so it can be learned.
+     * ==================================================================== */
+
+    // 四連偽装: the fan looks the same 4 times, but the 4th volley bends toward you at the last moment
+    rep3: {
+        duration: 300,
+        run(t) {
+            if (t % 60 !== 0 || t >= 240) return;
+            const a = aimFromBoss();
+            for (let i = -4; i <= 4; i++) bossShot(t / 60 < 3 ? "normal" : "lateHome", a + i * 0.17, 3);
+        },
+    },
+
+    // 逆パターン: the same wall as form 1, but the gap sweeps to the LEFT first
+    wallR: {
+        duration: 360,
+        waitClear: "wall",
+        run(t) {
+            wallRun(t, -1);
+        },
+    },
+
+    // 停止弾: a ring that stops in mid-air, then every bullet flies at you together
+    freezeRing: {
+        duration: 300,
+        run(t) {
+            if (t % 120 === 0 && t < 240) bossRing("freeze", 14, 3, t * 0.05);
+            if (t % 50 === 25) bossRing("normal", 8, 2, 0);
+        },
+    },
+
+    // 往復弾: a bullet sweeps across at your height from alternating sides, then comes back
+    boom: {
+        duration: 300,
+        run(t) {
+            if (t % 90 === 0 && t < 270) {
+                const left = (t / 90) % 2 === 0;
+                shoot("boomerang", left ? -8 : W + 8, player.y, left ? 0 : PI, 4.2);
+            }
+            if (t % 60 === 30) bossShot("normal", aimFromBoss(), 3);
+        },
+    },
+
+    // 分裂弾: a bullet that bursts into a ring
+    burst: {
+        duration: 300,
+        run(t) {
+            if (t % 70 === 0 && t < 240) bossShot("splitter", aimFromBoss(), 2.6);
+            if (t % 90 === 45) bossRing("normal", 8, 2, t * 0.1);
+        },
+    },
+
+    // 圧力: big slow bullets in 3 columns, plus bullets that start slow and speed up
+    pressure: {
+        duration: 320,
+        run(t) {
+            if (t % 60 === 0 && t < 260)
+                for (const dx of [-110, 0, 110]) shoot("big", boss.x + dx, boss.y + BOSS_MUZZLE_Y, PI / 2, 1.6);
+            if (t % 45 === 0) bossShot("accel", aimFromBoss(), 3);
+        },
+    },
+
+    // 包囲: 6 faint bullets appear around you; 35 frames later they fly to where you WERE
+    surround: {
+        duration: 320,
+        run(t) {
+            if (t % 80 !== 0 || t >= 260) return;
+            const px = player.x,
+                py = player.y;
+            for (let i = 0; i < 6; i++) {
+                const a = t * 0.01 + (i * PI) / 3;
+                const x = Math.max(8, Math.min(W - 8, px + Math.cos(a) * 110));
+                const y = Math.max(8, Math.min(H - 8, py + Math.sin(a) * 110));
+                shoot("lag", x, y, Math.atan2(py - y, px - x), 2.6);
+            }
+        },
+    },
+
+    // 渦: rings of bullets that bend (alternating left / right)
+    swirl: {
+        duration: 300,
+        run(t) {
+            if (t % 30 === 0 && t < 270) bossRing("swirl", 8, 2.6, t * 0.2, { turn: (t / 30) % 2 ? 0.03 : -0.03 });
+        },
+    },
+
+    // 行動記録 (see sealSide above): checked every 80 frames
+    habit: {
+        duration: 360,
+        run(t) {
+            if (t === 0) {
+                habitSide = 0;
+                habitSame = 0;
+                habitFlip = 0;
+            }
+            if (t % 60 === 20 && t < 300) bossShot("normal", aimFromBoss(), 3);
+            if (t % 80 !== 40 || t >= 320) return;
+            const side = player.x < CX ? -1 : 1;
+            if (habitSide !== 0) {
+                if (side === habitSide) {
+                    habitSame++;
+                    habitFlip = 0;
+                } else {
+                    habitFlip++;
+                    habitSame = 0;
+                }
+            }
+            habitSide = side;
+            if (habitSame >= 1) sealSide(side); // stayed on one side
+            else if (habitFlip >= 2) sealSide(-side); // keeps switching sides: seal where you go next
+        },
+    },
+
+    // 同じ場所禁止: stay within 40 px of the spot you were at 1 second ago for 1.5 seconds -> aimed fans
+    camper: {
+        duration: 300,
+        run(t) {
+            if (t === 0) camperN = 0;
+            if (t % 30 !== 0) return;
+            const old = history[0] || player;
+            camperN = Math.hypot(old.x - player.x, old.y - player.y) < 40 ? camperN + 1 : 0;
+            if (camperN >= 3) {
+                const a = aimFromBoss();
+                for (let i = -2; i <= 2; i++) bossShot("normal", a + i * 0.14, 3.4);
+            }
+        },
+    },
+
+    // HP12%発狂: when the boss HP is low, extra fans and swirling rings (add it to any step that lasts 240+ frames)
+    rage: {
+        duration: 240,
+        run(t) {
+            if (boss.hp > boss.max * 0.12 || t % 40 !== 20) return;
+            const a = aimFromBoss();
+            for (let i = -3; i <= 3; i++) bossShot("yellow", a + i * 0.2, 3.2);
+            bossRing("swirl", 10, 2.2, t, { turn: 0.03 });
+        },
+    },
 };
 
 // Attack order of each form. Every inner list runs at the same time;
@@ -703,3 +953,28 @@ const SEQUENCES = [
         ["rot", "vbeam", "home", "orbs"],
     ],
 ];
+
+// 理不尽モード (7 forms): forms 1-4 are the same as above, forms 5-7 are new.
+const SEQUENCES_HARD = [
+    SEQUENCES[0],
+    SEQUENCES[1],
+    SEQUENCES[2],
+    SEQUENCES[3],
+    // form 5 「覚えた奴ほど死ぬ」: things you learned, with a twist at the end
+    [["rep3"], ["wallR"], ["freezeRing"], ["boom"], ["burst"]],
+    // form 6 「プレイヤー対策」: reacts to how you move
+    [["habit"], ["surround"], ["habit", "boom"], ["swirl", "burst"], ["pressure", "camper"]],
+    // form 7 「最終理不尽」: everything together (rage = extra attacks when the boss HP is low)
+    [
+        ["rep3", "freezeRing", "rage"],
+        ["wallR"], // no rage here: the wall must stay dodgeable
+        ["habit", "burst", "rage"],
+        ["surround", "swirl", "rage"],
+        ["pressure", "camper", "freezeRing", "rage"],
+    ],
+];
+
+// Attach the attack lists to the modes (MODES is defined at the top, before these lists exist).
+// The number of lists must equal the number of forms (the length of bossHp); script.js checks it.
+MODES.find((m) => m.id === "hard").sequences = SEQUENCES_HARD;
+MODES.find((m) => m.id === "normal").sequences = SEQUENCES;
