@@ -153,6 +153,11 @@ const adminPanel = document.getElementById("admin-panel");
 const adminPass = document.getElementById("admin-pass");
 const adminMsg = document.getElementById("admin-msg");
 const adminInv = document.getElementById("admin-inv");
+const adminReset = document.getElementById("admin-reset");
+const adminResetMsg = document.getElementById("admin-reset-msg");
+let adminPassUsed = ""; // the password accepted at login (re-checked by the server on reset)
+let resetArmed = false; // the reset button was pressed once and waits for the confirming press
+let resetTimer = 0;
 
 // JIS keyboard: Shift+@ gives "`". US keyboard: Shift+2 gives "@".
 const isAdminShortcut = (e) => e.shiftKey && (e.key === "@" || e.key === "`");
@@ -163,6 +168,8 @@ function showAdminView() {
     adminMsg.textContent = "";
     adminPass.value = "";
     adminInv.checked = invincible;
+    disarmReset();
+    adminResetMsg.textContent = "";
     (adminAuthed ? adminInv : adminPass).focus();
 }
 function openAdmin() {
@@ -179,6 +186,7 @@ function closeAdmin() {
 function tryAdminLogin() {
     if (adminPass.value === ADMIN_PASSWORD) {
         adminAuthed = true;
+        adminPassUsed = adminPass.value;
         showAdminView();
     } else {
         adminMsg.textContent = "パスワードが違います";
@@ -193,6 +201,40 @@ document.getElementById("admin-ok").addEventListener("click", tryAdminLogin);
 adminInv.addEventListener("change", () => {
     invincible = adminInv.checked;
     if (invincible) usedAdmin = true; // a run played with invincibility is not recorded
+});
+/* reset every ranking record: press twice (second press within 4 s) to confirm */
+function disarmReset() {
+    resetArmed = false;
+    clearTimeout(resetTimer);
+    adminReset.textContent = "全スコアボードをリセット";
+    adminReset.disabled = false;
+}
+adminReset.addEventListener("click", async () => {
+    if (!adminAuthed) return;
+    if (!resetArmed) {
+        resetArmed = true;
+        adminReset.textContent = "本当に全削除する？ もう一度押すと実行";
+        adminResetMsg.textContent = "";
+        resetTimer = setTimeout(disarmReset, 4000);
+        return;
+    }
+    disarmReset();
+    adminReset.disabled = true;
+    adminResetMsg.textContent = "リセット中…";
+    try {
+        const res = await fetch(SCORE_API + "/api/scores/reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: adminPassUsed }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        scoreboard = { rows: data.scores || [], status: "ok", at: Date.now() };
+        adminResetMsg.textContent = "全スコアを削除しました";
+    } catch (err) {
+        adminResetMsg.textContent = "リセットできませんでした（" + (err.message || "error") + "）";
+    }
+    adminReset.disabled = false;
 });
 adminEl.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closeAdmin));
 

@@ -93,6 +93,16 @@ canvas {
     background: #334;
 }
 
+.admin-box button.danger {
+    color: #fff;
+    background: #c33;
+}
+
+.admin-box button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .admin-box label {
     display: flex;
     align-items: center;
@@ -101,6 +111,7 @@ canvas {
 }
 
 #admin-msg,
+#admin-reset-msg,
 #score-msg {
     min-height: 1.2em;
     margin: 8px 0 0;

@@ -7,6 +7,10 @@
  *      splits = [t1, t2, t3, t4]: the run time (ms) at which each form was defeated,
  *               null for a form that was not defeated (shown as NA)
  *
+ *    POST /api/scores/reset -> { ok: true, scores: [] }   body: { password }
+ *      admin only: deletes ALL records. The password is checked here on the server
+ *      (env ADMIN_PASSWORD; falls back to the same default as config.js).
+ *
  *  Storage:
  *    DATABASE_URL set   -> PostgreSQL (use this on Render; the data survives restarts)
  *    DATABASE_URL unset -> scores.json next to this file (handy for local testing only:
@@ -28,6 +32,8 @@ const NAME_MAX = 12;
 const MAX_MS = 6 * 60 * 60 * 1000; // no run is longer than 6 hours
 const MIN_CLEAR_MS = 45 * 1000; // a real CLEAR cannot be faster than this
 const POST_LIMIT = { max: 6, windowMs: 60 * 1000 }; // per IP
+const RESET_LIMIT = { max: 5, windowMs: 60 * 1000 }; // per IP (admin password guessing)
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "mint"; // keep in sync with config.js unless the env var is set
 
 /* ---------- validation ---------- */
 function parseScore(body) {
@@ -132,6 +138,9 @@ async function createPgStore(url) {
             );
             return r.rows[0].n + 1;
         },
+        async clear() {
+            await pool.query("TRUNCATE TABLE scores RESTART IDENTITY");
+        },
     };
 }
 
@@ -163,19 +172,22 @@ function createFileStore(file) {
             fs.writeFileSync(file, JSON.stringify(rows));
             return rank;
         },
+        async clear() {
+            rows = [];
+            fs.writeFileSync(file, "[]");
+        },
     };
 }
 
 /* ---------- simple per-IP rate limit for POST ---------- */
-const hits = new Map(); // ip -> [timestamps]
-function rateLimited(ip) {
+const hits = new Map(); // key -> [timestamps]
+function rateLimited(ip, limit = POST_LIMIT, bucket = "post") {
+    const key = bucket + ":" + ip;
     const now = Date.now();
-    const list = (hits.get(ip) || []).filter(
-        (t) => now - t < POST_LIMIT.windowMs,
-    );
+    const list = (hits.get(key) || []).filter((t) => now - t < limit.windowMs);
     list.push(now);
-    hits.set(ip, list);
-    return list.length > POST_LIMIT.max;
+    hits.set(key, list);
+    return list.length > limit.max;
 }
 setInterval(
     () => {
@@ -186,6 +198,14 @@ setInterval(
     },
     5 * 60 * 1000,
 ).unref();
+
+/* ---------- constant-time string compare ---------- */
+function safeEqual(a, b) {
+    const crypto = require("crypto");
+    const ha = crypto.createHash("sha256").update(a).digest();
+    const hb = crypto.createHash("sha256").update(b).digest();
+    return crypto.timingSafeEqual(ha, hb);
+}
 
 /* ---------- app ---------- */
 function createApp(store) {
@@ -227,6 +247,30 @@ function createApp(store) {
                 const rank = await store.add(parsed.score);
                 res.set("Cache-Control", "no-store");
                 res.json({ rank, scores: await store.top(TOP_N) });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ error: "server error" });
+            }
+        },
+    );
+
+    // admin: delete every record
+    app.post(
+        "/api/scores/reset",
+        express.json({ limit: "1kb" }),
+        async (req, res) => {
+            if (rateLimited(req.ip, RESET_LIMIT, "reset"))
+                return res
+                    .status(429)
+                    .json({ error: "試行が多すぎます。少し待ってください" });
+            const given = req.body && req.body.password;
+            if (typeof given !== "string" || !safeEqual(given, ADMIN_PASSWORD))
+                return res.status(403).json({ error: "パスワードが違います" });
+            try {
+                await store.clear();
+                console.warn("[scores] all records were reset by admin (" + req.ip + ")");
+                res.set("Cache-Control", "no-store");
+                res.json({ ok: true, scores: await store.top(TOP_N) });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ error: "server error" });
