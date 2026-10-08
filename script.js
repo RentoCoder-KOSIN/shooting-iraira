@@ -19,6 +19,7 @@ let CX = W / 2; // horizontal center
 const S = {
     TITLE: "title",
     MODE: "mode",
+    PRACT: "pract", // practice mode: pick a mode's form to practice
     SELECT: "select",
     PLAY: "play",
     GAG: "gag",
@@ -31,7 +32,7 @@ const S = {
 const PLAYER_START = { x: 240, y: 580 }; // x follows the screen center (see layout())
 const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 }; // x follows the screen center
 const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x follows the screen center
-const MODE_BTN = { x: 90, y: 250, w: 300, h: 90, gap: 40 }; // mode select buttons (x follows the screen center)
+const MODE_BTN = { x: 90, y: 240, w: 300, h: 80, gap: 20 }; // mode select buttons (x follows the screen center)
 const modeBtn = (i) => ({ x: MODE_BTN.x, y: MODE_BTN.y + i * (MODE_BTN.h + MODE_BTN.gap), w: MODE_BTN.w, h: MODE_BTN.h });
 
 /* ---- game state ---- */
@@ -41,6 +42,9 @@ let boss; // { x, y, hp, max }
 let bullets, beams, shots, orbs, queue, history;
 let gameMode = MODES[0]; // the chosen mode (see MODES in config.js)
 let modeIdx = 0; // highlighted entry on the mode select screen
+let practice = false; // true while playing in practice mode (never recorded)
+let practMode = 0; // practice screen: index in MODES
+let practForm = 0; // practice screen: highlighted form (0 = form 1)
 let speedMul; // bullet speed multiplier (grows with some orbs)
 let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
 let phase; // progress: the form you are on (0 .. formCount() - 1). Score and form changes use this
@@ -71,12 +75,26 @@ const fightForm = () => (detour ? 0 : phase);
 const formCount = () => gameMode.bossHp.length;
 const bossHpOf = (i) => gameMode.bossHp[i];
 const sequencesOf = () => gameMode.sequences;
+// Mode select entries: the real modes + the practice mode (the last entry, index MODES.length)
+const MODE_MENU = [...MODES, { id: "practice", label: "練習モード", desc: "形態を選んで練習（記録なし）", color: "#6d6" }];
+const PRACTICE_IDX = MODES.length;
+
+// practice screens (all x positions follow the screen center)
+const practTab = (i) => ({ x: CX - 150 + i * 155, y: 190, w: 145, h: 40 }); // mode tabs
+const practRow = (i) => ({ x: CX - 150, y: 246 + i * 44, w: 300, h: 40 }); // one row per form
+const practBack = () => ({ x: 10, y: 596, w: 90, h: 32 });
+const practRetryBtn = () => ({ x: CX - 150, y: 450, w: 140, h: 46 }); // after game over / practice clear
+const practMenuBtn = () => ({ x: CX + 10, y: 450, w: 140, h: 46 });
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const rand = (a, b) => a + Math.random() * (b - a);
 
 // Mode select: apply the mode and start the run
 function chooseMode(i) {
     modeIdx = i;
+    if (i === PRACTICE_IDX) {
+        state = S.PRACT; // practice: pick the mode and the form first
+        return;
+    }
     gameMode = MODES[i];
     speedMul = gameMode.startSpeedMul;
     // the number of forms depends on the mode: prepare the first form and the split times
@@ -85,7 +103,43 @@ function chooseMode(i) {
     state = S.PLAY;
 }
 
+// Practice: start the chosen form of the chosen mode (also used to retry)
+function startPractice() {
+    const keep = { invincible, attackMul, playerMaxHp }; // admin settings stay while practicing
+    resetGame();
+    invincible = keep.invincible;
+    attackMul = keep.attackMul;
+    playerMaxHp = keep.playerMaxHp;
+    adminInv.checked = invincible;
+    syncAdminSliders();
+    practice = true;
+    modeIdx = practMode;
+    gameMode = MODES[practMode];
+    speedMul = gameMode.startSpeedMul;
+    phase = practForm;
+    boss.hp = boss.max = bossHpOf(phase);
+    formSplits = Array(formCount()).fill(null);
+    player.hp = playerMaxHp;
+    // as if the earlier selections had been made: form 2 still has its two selections, later forms
+    // have the swapped red / blue orbs (until the last form)
+    midPickDone = phase >= 2;
+    swapOrbs = phase >= 2 && phase < formCount() - 1;
+    state = phase === 1 ? S.SELECT : S.PLAY;
+}
+// leave the practice and go back to the form list
+function exitPractice() {
+    const keep = { invincible, attackMul, playerMaxHp };
+    resetGame();
+    invincible = keep.invincible;
+    attackMul = keep.attackMul;
+    playerMaxHp = keep.playerMaxHp;
+    adminInv.checked = invincible;
+    syncAdminSliders();
+    state = S.PRACT;
+}
+
 function resetGame() {
+    practice = false;
     state = S.TITLE;
     swapOrbs = false;
     midPickDone = false;
@@ -345,7 +399,7 @@ function finishRun(cleared) {
         splits: [...formSplits],
         rank: 0,
     };
-    if (!SCORE_ENABLED || usedAdmin || !gameMode.ranked) return;
+    if (practice || !SCORE_ENABLED || usedAdmin || !gameMode.ranked) return; // practice is never recorded
     const token = ++runToken;
     setTimeout(() => {
         if (token === runToken && (state === S.OVER || state === S.WIN)) openScore();
@@ -434,7 +488,8 @@ function advance() {
     if (state === S.GAG) pressGagDone(); // the keyboard goes through the same confirmations
     else if (state === S.TITLE) state = S.MODE;
     else if (state === S.MODE) chooseMode(modeIdx);
-    else if (state === S.OVER || state === S.WIN) resetGame();
+    else if (state === S.PRACT) startPractice();
+    else if (state === S.OVER || state === S.WIN) practice ? startPractice() : resetGame();
 }
 
 function canvasPoint(e) {
@@ -486,8 +541,22 @@ window.addEventListener("keydown", (e) => {
     keys[e.key.toLowerCase()] = true;
     if (state === S.MODE && !e.repeat) {
         const k = e.key.toLowerCase();
-        if (k === "w" || k === "arrowup") modeIdx = (modeIdx + MODES.length - 1) % MODES.length;
-        if (k === "s" || k === "arrowdown") modeIdx = (modeIdx + 1) % MODES.length;
+        if (k === "w" || k === "arrowup") modeIdx = (modeIdx + MODE_MENU.length - 1) % MODE_MENU.length;
+        if (k === "s" || k === "arrowdown") modeIdx = (modeIdx + 1) % MODE_MENU.length;
+        if (k === "escape") state = S.TITLE;
+    }
+    if (state === S.PRACT && !e.repeat) {
+        const k = e.key.toLowerCase();
+        const n = () => MODES[practMode].bossHp.length;
+        if (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright") {
+            practMode = (practMode + 1) % MODES.length;
+            practForm = Math.min(practForm, n() - 1);
+        }
+        if (k === "w" || k === "arrowup") practForm = (practForm + n() - 1) % n();
+        if (k === "s" || k === "arrowdown") practForm = (practForm + 1) % n();
+        if (k === "escape") state = S.MODE;
+    } else if (practice && e.key === "Escape") {
+        exitPractice(); // Esc while practicing: back to the form list
     }
     if (!e.repeat) {
         if (e.key.toLowerCase() === "f") toggleFullscreen();
@@ -511,9 +580,26 @@ canvas.addEventListener("click", (e) => {
     } else if (state === S.GAG) {
         if (inButton(p, BTN_GAG_DONE)) pressGagDone();
     } else if (state === S.MODE) {
-        MODES.forEach((_, i) => {
+        MODE_MENU.forEach((_, i) => {
             if (inButton(p, modeBtn(i))) chooseMode(i);
         });
+    } else if (state === S.PRACT) {
+        MODES.forEach((_, i) => {
+            if (inButton(p, practTab(i))) {
+                practMode = i;
+                practForm = Math.min(practForm, MODES[i].bossHp.length - 1);
+            }
+        });
+        MODES[practMode].bossHp.forEach((_, i) => {
+            if (inButton(p, practRow(i))) {
+                practForm = i;
+                startPractice();
+            }
+        });
+        if (inButton(p, practBack())) state = S.MODE;
+    } else if (practice && (state === S.OVER || state === S.WIN)) {
+        if (inButton(p, practRetryBtn())) startPractice();
+        else if (inButton(p, practMenuBtn())) exitPractice();
     } else {
         advance();
     }
@@ -771,7 +857,7 @@ function checkBossDefeated() {
         return;
     }
     formSplits[phase] = Math.round(runFrames * STEP_MS); // time at which this form was defeated
-    if (phase === formCount() - 1) {
+    if (practice || phase === formCount() - 1) { // practice: clearing the chosen form is the end
         state = S.WIN;
         finishRun(true);
     } else if (phase === formCount() - 2) {
@@ -952,6 +1038,7 @@ function drawField() {
     );
     // many hearts would not fit: show "♥×N" above 16
     drawText(player.hp > 16 ? "♥×" + player.hp : "♥".repeat(Math.max(0, player.hp)), 10, H - 10, 16, "#f66", "left");
+    if (practice) drawText("練習　Esc: 形態選択へ", CX, H - 10, 11, "#6d6");
     if (invincible) drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
     if (attackMul !== 1 || playerMaxHp !== PLAYER_MAX_HP)
         drawText("ADMIN: 攻撃力×" + attackMul + " 体力" + playerMaxHp, W - 10, invincible ? 52 : 36, 12, "#fc3", "right");
@@ -1006,6 +1093,18 @@ function drawRunResult(y1, y2) {
     else if (usedAdmin) drawText("ADMIN使用のため記録されません", CX, y2, 13, "#fc3");
 }
 
+// practice: "retry" and "back to the form list" buttons on the game over / clear screens
+function drawPracticeButtons() {
+    [
+        [practRetryBtn(), "もう一度 (Enter)", "#6d6"],
+        [practMenuBtn(), "形態選択へ (Esc)", "#6af"],
+    ].forEach(([b, label, color]) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        drawText(label, b.x + b.w / 2, b.y + 29, 15, "#012");
+    });
+}
+
 function drawOverlay() {
     switch (state) {
         case S.TITLE:
@@ -1023,7 +1122,7 @@ function drawOverlay() {
         case S.MODE:
             fillScreen("#10101c");
             drawText("モードを選んでください", CX, 190, 28, "#fff");
-            MODES.forEach((m, i) => {
+            MODE_MENU.forEach((m, i) => {
                 const b = modeBtn(i);
                 const sel = i === modeIdx;
                 ctx.fillStyle = sel ? m.color : "#2a2a3c";
@@ -1031,12 +1130,46 @@ function drawOverlay() {
                 ctx.strokeStyle = m.color;
                 ctx.lineWidth = 3;
                 ctx.strokeRect(b.x, b.y, b.w, b.h);
-                drawText(m.label, CX, b.y + 40, 28, sel ? "#000" : "#fff");
-                drawText(m.desc, CX, b.y + 70, 14, sel ? "#112" : "#aab");
+                drawText(m.label, CX, b.y + 34, 26, sel ? "#000" : "#fff");
+                drawText(m.desc, CX, b.y + 62, 14, sel ? "#112" : "#aab");
             });
             drawText("W/S・矢印で選択、Enter か タップで決定", CX, 560, 14, "#889");
-            if (!MODES[modeIdx].ranked) drawText("※通常モードはランキングに登録されません", CX, 590, 12, "#fc3");
+            if (modeIdx === PRACTICE_IDX) drawText("※練習モードはランキングに登録されません", CX, 590, 12, "#fc3");
+            else if (!MODES[modeIdx].ranked) drawText("※通常モードはランキングに登録されません", CX, 590, 12, "#fc3");
             break;
+        case S.PRACT: {
+            fillScreen("#10101c");
+            drawText("練習モード", CX, 130, 30, "#6d6");
+            drawText("モードを選んで、練習する形態を選んでください", CX, 165, 14, "#aab");
+            MODES.forEach((m, i) => {
+                const b = practTab(i);
+                const sel = i === practMode;
+                ctx.fillStyle = sel ? m.color : "#2a2a3c";
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.strokeStyle = m.color;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(b.x, b.y, b.w, b.h);
+                drawText(m.label, b.x + b.w / 2, b.y + 26, 17, sel ? "#000" : "#fff");
+            });
+            const pm = MODES[practMode];
+            pm.bossHp.forEach((hp, i) => {
+                const b = practRow(i);
+                const sel = i === practForm;
+                ctx.fillStyle = sel ? pm.color : "#2a2a3c";
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.strokeStyle = pm.color;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(b.x, b.y, b.w, b.h);
+                const title = pm.formTitles && pm.formTitles[i];
+                drawText("第" + FORM_NAMES[i] + "形態" + (title ? "「" + title + "」" : ""), CX, b.y + 26, 16, sel ? "#000" : "#fff");
+            });
+            drawText("A/D・←→ でモード切替　W/S・↑↓ で形態選択　Enter / タップで開始", CX, 572, 12, "#889");
+            const bk = practBack();
+            ctx.fillStyle = "#334";
+            ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
+            drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");
+            break;
+        }
         case S.GAG: {
             const b = BTN_GAG_DONE;
             fillScreen("rgba(0,0,40,.9)");
@@ -1071,14 +1204,16 @@ function drawOverlay() {
             drawText("GAME OVER", CX, 250, 48, "#e22");
             drawText("👿「" + tauntText + "」", CX, 330, 22, "#fff");
             drawRunResult(365, 392);
-            drawText("タップ / クリック / Enter でもう一度", CX, 420, 16, "#889");
+            if (practice) drawPracticeButtons();
+            else drawText("タップ / クリック / Enter でもう一度", CX, 420, 16, "#889");
             break;
         case S.WIN:
             fillScreen("rgba(0,0,0,.8)");
-            drawText("本物のCLEAR！", CX, 280, 44, "#fd0");
+            drawText(practice ? "練習クリア！" : "本物のCLEAR！", CX, 280, 44, "#fd0");
             drawText("ちゃんと避けられたね", CX, 340, 20, "#fff");
             drawRunResult(372, 398);
-            drawText("タップ / クリック / Enter でもう一度", CX, 420, 16, "#889");
+            if (practice) drawPracticeButtons();
+            else drawText("タップ / クリック / Enter でもう一度", CX, 420, 16, "#889");
             break;
     }
 }
