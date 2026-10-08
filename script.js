@@ -86,6 +86,8 @@ function resetGame() {
     frame = 0;
     runFrames = 0;
     formFrames = 0;
+    invincible = false; // admin mode is NOT carried over to the next run
+    adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
     lastRun = null;
     runToken++;
