@@ -49,6 +49,11 @@ let gagStep, gagLock; // gag confirmation progress / press cooldown
 let keyHealUsed; // the random-key heal was used
 let secretKey; // the one key that heals (chosen at random every game)
 let keyDebug; // { text, t } debug text of the last pressed key
+let runFrames, formFrames; // frames spent actually playing: whole run / current form (this is the score)
+let usedAdmin; // invincible mode was on at some point in this run -> not recorded
+let lastRun; // the finished run: { form, cleared, formMs, totalMs, rank }
+let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
+let scoreOpen = false; // the name entry panel is open
 
 const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -74,6 +79,13 @@ function resetGame() {
     patIdx = 0;
     patTime = 0;
     frame = 0;
+    runFrames = 0;
+    formFrames = 0;
+    usedAdmin = false;
+    lastRun = null;
+    runToken++;
+    closeScore();
+    fetchScores(); // refresh the ranking shown on the title screen
     boss = { x: CX, y: BOSS_START_Y, hp: BOSS_HP[0], max: BOSS_HP[0] };
 }
 
@@ -167,8 +179,112 @@ adminPass.addEventListener("keydown", (e) => {
 document.getElementById("admin-ok").addEventListener("click", tryAdminLogin);
 adminInv.addEventListener("change", () => {
     invincible = adminInv.checked;
+    if (invincible) usedAdmin = true; // a run played with invincibility is not recorded
 });
 adminEl.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closeAdmin));
+
+/* ---- scoreboard (talks to server.js) ---- */
+const scoreEl = document.getElementById("score");
+const scoreResult = document.getElementById("score-result");
+const scoreName = document.getElementById("score-name");
+const scoreMsg = document.getElementById("score-msg");
+const scoreOk = document.getElementById("score-ok");
+const scoreSkip = document.getElementById("score-skip");
+scoreName.maxLength = SCORE_NAME_MAX;
+
+let scoreboard = { rows: [], status: "loading", at: 0 }; // status: loading / ok / error
+
+// 83700 ms -> "1:23.7"
+function fmtTime(ms) {
+    const t = Math.floor(ms / 100);
+    return Math.floor(t / 600) + ":" + String(Math.floor((t % 600) / 10)).padStart(2, "0") + "." + (t % 10);
+}
+// one line of the ranking: CLEAR time, or the form reached + time in that form
+const runLabel = (r) => (r.cleared ? "CLEAR " + fmtTime(r.totalMs) : r.form + "形態 " + fmtTime(r.formMs));
+
+async function fetchScores(force = false) {
+    if (!SCORE_ENABLED) return;
+    const now = Date.now();
+    if (!force && now - scoreboard.at < SCORE_REFETCH_MIN_MS) return;
+    scoreboard.at = now;
+    try {
+        const res = await fetch(SCORE_API + "/api/scores");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        scoreboard = { rows: data.scores, status: "ok", at: now };
+    } catch (_) {
+        scoreboard.status = "error";
+    }
+}
+
+// Called when a real game over / real CLEAR happens
+function finishRun(cleared) {
+    lastRun = {
+        form: phase + 1,
+        cleared,
+        formMs: Math.round(formFrames * STEP_MS),
+        totalMs: Math.round(runFrames * STEP_MS),
+        rank: 0,
+    };
+    if (!SCORE_ENABLED || usedAdmin) return;
+    const token = ++runToken;
+    setTimeout(() => {
+        if (token === runToken && (state === S.OVER || state === S.WIN)) openScore();
+    }, SCORE_PROMPT_DELAY_MS);
+}
+
+function openScore() {
+    scoreOpen = true;
+    for (const k in keys) delete keys[k]; // release held movement keys
+    scoreResult.textContent = lastRun.cleared
+        ? "CLEAR！ タイム " + fmtTime(lastRun.totalMs)
+        : "第" + FORM_NAMES[lastRun.form - 1] + "形態 " + fmtTime(lastRun.formMs) + "（生存 " + fmtTime(lastRun.totalMs) + "）";
+    let saved = "";
+    try {
+        saved = localStorage.getItem(SCORE_NAME_KEY) || "";
+    } catch (_) {}
+    scoreName.value = saved;
+    scoreMsg.textContent = "";
+    scoreOk.disabled = false;
+    scoreEl.hidden = false;
+    scoreName.focus();
+    scoreName.select();
+}
+function closeScore() {
+    scoreOpen = false;
+    scoreEl.hidden = true;
+    if (document.activeElement) document.activeElement.blur();
+}
+async function submitScore() {
+    if (!scoreOpen || scoreOk.disabled || !lastRun) return;
+    const run = lastRun;
+    const name = scoreName.value.trim().slice(0, SCORE_NAME_MAX);
+    scoreOk.disabled = true;
+    scoreMsg.textContent = "送信中…";
+    try {
+        const res = await fetch(SCORE_API + "/api/scores", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, form: run.form, cleared: run.cleared, formMs: run.formMs, totalMs: run.totalMs }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        run.rank = data.rank;
+        try {
+            localStorage.setItem(SCORE_NAME_KEY, name);
+        } catch (_) {}
+        scoreboard = { rows: data.scores, status: "ok", at: Date.now() };
+        closeScore();
+    } catch (err) {
+        scoreMsg.textContent = "送信できませんでした（" + (err.message || "error") + "）";
+        scoreOk.disabled = false;
+    }
+}
+scoreOk.addEventListener("click", submitScore);
+scoreSkip.addEventListener("click", closeScore);
+scoreName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitScore();
+});
 
 /* fullscreen */
 function enterFullscreen() {
@@ -234,6 +350,10 @@ function onOtherKey(e) {
 }
 
 window.addEventListener("keydown", (e) => {
+    if (scoreOpen) {
+        if (e.key === "Escape") closeScore();
+        return; // keys belong to the name entry while it is open
+    }
     if (adminOpen) {
         if (e.key === "Escape") closeAdmin();
         return; // keys belong to the panel while it is open
@@ -384,6 +504,7 @@ function hurtPlayer() {
     if (player.hp <= 0) {
         state = S.OVER;
         tauntText = pick(TAUNTS).replace("◯", FORM_NAMES[phase]);
+        finishRun(false);
     }
 }
 
@@ -514,11 +635,13 @@ function checkBossDefeated() {
     patIdx = 0;
     if (phase === 3) {
         state = S.WIN;
+        finishRun(true);
     } else if (phase === 2) {
         state = S.FCLEAR; // the fake "CLEAR"
         clearTimer = FCLEAR_FRAMES;
     } else {
         phase++;
+        formFrames = 0;
         boss.hp = boss.max = BOSS_HP[phase];
         if (phase === 1) {
             state = S.SELECT;
@@ -529,6 +652,8 @@ function checkBossDefeated() {
 }
 
 function updatePlay() {
+    runFrames++;
+    formFrames++;
     movePlayer();
     if (player.inv > 0) player.inv--;
     history.push({ x: player.x, y: player.y });
@@ -582,6 +707,7 @@ function update() {
         case S.FCLEAR:
             if (--clearTimer <= 0) {
                 phase = 3;
+                formFrames = 0;
                 swapOrbs = false;
                 boss.hp = boss.max = BOSS_HP[3];
                 state = S.PLAY;
@@ -688,6 +814,43 @@ function drawField() {
         drawText("操作反転 " + Math.ceil(invertTimer / 60) + "秒", W - 10, H - 10, 16, "#f93", "right");
 }
 
+// top 10 in the top-left corner of the title screen
+function drawScoreboard() {
+    if (!SCORE_ENABLED) return;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#fc3";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText("TOP " + SCORE_TOP_N, 10, 22);
+    ctx.font = "10px sans-serif";
+    if (!scoreboard.rows.length) {
+        ctx.fillStyle = "#889";
+        const msg = { loading: "読み込み中…", error: "ランキングを取得できません", ok: "まだ記録がありません" }[scoreboard.status];
+        ctx.fillText(msg, 10, 40);
+        return;
+    }
+    scoreboard.rows.slice(0, SCORE_TOP_N).forEach((r, i) => {
+        const y = 40 + i * 15;
+        ctx.fillStyle = i === 0 ? "#fd0" : "#ccd";
+        ctx.textAlign = "left";
+        ctx.fillText(i + 1 + ". " + r.name, 10, y, 100);
+        ctx.textAlign = "right";
+        ctx.fillText(runLabel(r), 190, y);
+    });
+}
+
+// result lines of the game over / clear screens
+function drawRunResult(y1, y2) {
+    if (!lastRun) return;
+    drawText(
+        lastRun.cleared
+            ? "クリアタイム " + fmtTime(lastRun.totalMs)
+            : "第" + FORM_NAMES[lastRun.form - 1] + "形態　生存 " + fmtTime(lastRun.totalMs),
+        CX, y1, 15, "#aab"
+    );
+    if (lastRun.rank) drawText(lastRun.rank + "位に登録しました！", CX, y2, 18, "#fd0");
+    else if (usedAdmin) drawText("ADMIN使用のため記録されません", CX, y2, 13, "#fc3");
+}
+
 function drawOverlay() {
     switch (state) {
         case S.TITLE:
@@ -700,6 +863,7 @@ function drawOverlay() {
             drawText("難しいんじゃない。イライラするだけ。", CX, 390, 15, "#889");
             if (frame % 60 < 40) drawText("タップ / クリック / Enter でスタート", CX, 500, 22, "#fff");
             drawText("移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動", CX, 560, 14, "#889");
+            drawScoreboard();
             break;
         case S.GAG: {
             const b = BTN_GAG_DONE;
@@ -734,12 +898,14 @@ function drawOverlay() {
             fillScreen("rgba(0,0,0,.8)");
             drawText("GAME OVER", CX, 250, 48, "#e22");
             drawText("👿「" + tauntText + "」", CX, 330, 22, "#fff");
+            drawRunResult(365, 392);
             drawText("タップ / クリック / Enter でもう一度", CX, 420, 16, "#889");
             break;
         case S.WIN:
             fillScreen("rgba(0,0,0,.8)");
             drawText("本物のCLEAR！", CX, 280, 44, "#fd0");
             drawText("ちゃんと避けられたね", CX, 340, 20, "#fff");
+            drawRunResult(372, 398);
             drawText("タップ / クリック / Enter でもう一度", CX, 420, 16, "#889");
             break;
     }

@@ -30,7 +30,8 @@ canvas {
 }
 
 /* ---- admin overlay (a real DOM element so we can use a password input) ---- */
-#admin {
+#admin,
+#score {
     position: fixed;
     inset: 0;
     display: flex;
@@ -41,7 +42,9 @@ canvas {
 }
 
 #admin[hidden],
-#admin [hidden] {
+#admin [hidden],
+#score[hidden],
+#score [hidden] {
     display: none;
 }
 
@@ -61,7 +64,8 @@ canvas {
     color: #6af;
 }
 
-.admin-box input[type="password"] {
+.admin-box input[type="password"],
+.admin-box input[type="text"] {
     width: 100%;
     box-sizing: border-box;
     padding: 8px;
@@ -96,9 +100,16 @@ canvas {
     cursor: pointer;
 }
 
-#admin-msg {
+#admin-msg,
+#score-msg {
     min-height: 1.2em;
     margin: 8px 0 0;
     font-size: 13px;
     color: #f77;
+}
+
+#score-result {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: #fc3;
 }
