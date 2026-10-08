@@ -188,6 +188,20 @@
             // bullet pace (緩急): every bullet speeds up and slows down by the same sine law of its age
             const PACE_AMP = 0.35; // +-35% around the base speed
             const PACE_PERIOD = 120; // frames per cycle
+            // extra tempo on top of the smooth pace: some bullets stop and burst, some creep and then dash
+            const TEMPO_STOP_CHANCE = 0.12; // stop for a moment, then burst forward
+            const TEMPO_DASH_CHANCE = 0.12; // creep slowly, then suddenly dash
+            const rand = (a, b) => a + Math.random() * (b - a);
+            // speed factor of a bullet by its age (1 = normal)
+            const tempoFactor = (b) => {
+                if (b.mode === "stop") {
+                    if (b.age < b.t1) return 1;
+                    if (b.age < b.t1 + b.d) return 0; // stopped
+                    return 1 + 1.2 * Math.exp(-(b.age - b.t1 - b.d) / 30); // burst, easing back to normal
+                }
+                if (b.mode === "dash") return b.age < b.t1 ? 0.45 : 2.0; // creep, then suddenly fast
+                return 1;
+            };
             const INVERT_FRAMES = 600; // orange orb: controls reversed for 10 seconds
             const KEY_HEAL = 3; // 回復量
             const KEY_BOSS_BUFF = 0.1; // ボス強化(弾速倍率に加算)
@@ -515,7 +529,17 @@
             const aimFromBoss = () => aim(boss.x, boss.y);
 
             function spawnBullet(x, y, angle, speed, opt = {}) {
+                const roll = Math.random();
+                const mode =
+                    roll < TEMPO_STOP_CHANCE
+                        ? "stop"
+                        : roll < TEMPO_STOP_CHANCE + TEMPO_DASH_CHANCE
+                          ? "dash"
+                          : "none";
                 bullets.push({
+                    mode, // "none" | "stop" | "dash"
+                    t1: mode === "stop" ? rand(20, 50) : rand(35, 70), // age when the tempo changes
+                    d: rand(25, 55), // how long a "stop" bullet stays still
                     x,
                     y,
                     vx: Math.cos(angle) * speed * speedMul,
@@ -623,6 +647,7 @@
                             spawnBullet(x, -8, PI / 2, 2.8, {
                                 r: 6,
                                 col: "#f80",
+                                mode: "none", // keep the wall rows intact (no stop / dash)
                             });
                     }
                 },
@@ -924,7 +949,9 @@
                     }
                     b.vx += b.ax;
                     const pace =
-                        1 + PACE_AMP * Math.sin((2 * PI * b.age++) / PACE_PERIOD);
+                        (1 + PACE_AMP * Math.sin((2 * PI * b.age) / PACE_PERIOD)) *
+                        tempoFactor(b);
+                    b.age++;
                     b.x += b.vx * pace;
                     b.y += b.vy * pace;
                     if (Math.hypot(b.x - player.x, b.y - player.y) < b.r + 3)
