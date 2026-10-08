@@ -142,6 +142,29 @@
             const ORB = { NORMAL: 0, HEAL: 1, GAG: 2, DOUBLE: 3, FAKE: 4 };
             const ORB_COLORS = ["#f93", "#f33", "#39f", "#3c3", "#a4f"];
 
+            // Select screen orbs: c = color, k = effect (ORB.*). Edit this table to tune the lineup.
+            const SELECT_ORBS = [
+                { c: "#f93", k: ORB.NORMAL },
+                { c: "#f33", k: ORB.HEAL },
+                { c: "#39f", k: ORB.GAG },
+                { c: "#3c3", k: ORB.DOUBLE },
+                { c: "#a4f", k: ORB.FAKE },
+            ];
+
+            // 2nd selection only: the red and blue orbs swap abilities (indices into SELECT_ORBS).
+            // Every other orb, and every falling orb, keeps its own ability.
+            const SELECT_SWAP_PAIR = [1, 2]; // red (#f33), blue (#39f)
+            const selectEffect = (i) => {
+                const [a, b] = SELECT_SWAP_PAIR;
+                if (swapOrbs && i === a) return SELECT_ORBS[b].k;
+                if (swapOrbs && i === b) return SELECT_ORBS[a].k;
+                return SELECT_ORBS[i].k;
+            };
+            const SEL_COLS = 5, // orbs per row
+                SEL_GAP = 80, // distance between orbs
+                SEL_R = 20, // orb radius
+                SEL_PICK = 24; // pickup distance
+
             // 第2形態以降で降ってくる玉の順番(固定)。落下位置はランダム
             const ORB_ORDER_MAIN = [1, 2, 3, 4, 0, 3, 4, 2, 1, 0];
             const ORB_ORDER_PATTERN = [1, 2, 3, 4, 0, 4];
@@ -172,6 +195,14 @@
             // ボタン領域
             const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 }; // x is updated by layout()
             const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x is updated by layout()
+
+            // Extra confirmations after pressing the first "done" button (blue orb / gag state)
+            const GAG_CONFIRMS = [
+                "本当に終わりましたか？",
+                "ちゃんと全力でやりましたか？",
+                "最終確認：もう思い残すことはありませんか？",
+            ];
+            const GAG_LOCK_FRAMES = 30; // ignore presses right after one (prevents double-click skipping)
 
             const GAG_TEXTS = [
                 "全力で変な顔をしてください",
@@ -214,14 +245,22 @@
             let phase; // 形態(0〜3)
             let patIdx, patTime; // 攻撃シーケンス内の位置と経過フレーム
             let frame; // 全体フレームカウンタ
-            let swapOrbs; // 玉の効果を入れ替えるか(第2形態の途中選択)
+            let swapOrbs; // true during the 2nd selection: red/blue abilities are swapped
             let midPickDone; // 第2形態の途中選択を済ませたか
             let fakeTimer, clearTimer, gagText, tauntText;
+            let gagStep, gagLock; // gag confirmation progress (0 = first screen) / press cooldown
             let keyHealUsed; // ランダムキー回復を使ったか
             let secretKey; // 回復が発動する「ランダムな1キー」(ゲームごとに抽選)
             let keyDebug; // デバッグ表示 {text, t}
 
-            const selectOrbX = (i) => CX - 200 + i * 80; // orbs on the select screen
+            // grid centered on the screen (both horizontally and vertically)
+            const selectOrbPos = (i) => {
+                const rows = Math.ceil(SELECT_ORBS.length / SEL_COLS);
+                return {
+                    x: CX + ((i % SEL_COLS) - (SEL_COLS - 1) / 2) * SEL_GAP,
+                    y: H / 2 + (((i / SEL_COLS) | 0) - (rows - 1) / 2) * SEL_GAP,
+                };
+            };
             const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 
             function resetGame() {
@@ -330,10 +369,19 @@
                 else enterFullscreen();
             }
 
+            // "done" press in the gag state: needs GAG_CONFIRMS.length extra confirmations
+            function pressGagDone() {
+                if (gagLock > 0) return;
+                gagLock = GAG_LOCK_FRAMES;
+                if (gagStep < GAG_CONFIRMS.length) gagStep++;
+                else state = S.PLAY;
+            }
+
             // Enter/Space/クリック共通の「次へ」動作
             function advance() {
                 if (state === S.TITLE) enterFullscreen(); // スタート時にフルスクリーン化
-                if (state === S.GAG || state === S.TITLE) state = S.PLAY;
+                if (state === S.GAG) pressGagDone(); // keyboard goes through the same confirmations
+                else if (state === S.TITLE) state = S.PLAY;
                 else if (state === S.OVER || state === S.WIN) resetGame();
             }
 
@@ -404,7 +452,7 @@
                     // 偽ゲームオーバーのRESTARTを押すと最初からやり直し(罠)
                     if (inButton(p, BTN_FAKE_RESTART)) resetGame();
                 } else if (state === S.GAG) {
-                    if (inButton(p, BTN_GAG_DONE)) state = S.PLAY;
+                    if (inButton(p, BTN_GAG_DONE)) pressGagDone();
                 } else {
                     advance();
                 }
@@ -502,6 +550,7 @@
             /* =====================================================================
              *  攻撃パターン (t = パターン開始からのフレーム)
              * ===================================================================== */
+            const GAP_HALF = 36; // wall pattern: half width of the safe gap in px (was 28)
             const PATTERNS = {
                 // 4回目だけ軌道が変わる扇弾
                 rep(t) {
@@ -537,9 +586,14 @@
                 // 隙間がゆっくり動く弾の壁
                 wall(t) {
                     if (t % 22 !== 0 || t >= 340) return;
-                    const gap = CX + Math.sin((t / 22) * 0.45) * 150 * (W / 480);
-                    for (let x = 10; x < W; x += 24) {
-                        if (Math.abs(x - gap) > 28)
+                    // Wider screen -> larger sweep but slower frequency, so the gap's
+                    // max speed (px per row) stays the same as at W = 480 and stays dodgeable.
+                    const gap =
+                        CX + Math.sin((t / 22) * 0.45 * (480 / W)) * 150 * (W / 480);
+                    // odd rows are shifted by half the spacing -> 1010.. / 0101.. checkerboard
+                    const shift = (t / 22) % 2 ? 12 : 0;
+                    for (let x = 10 + shift; x < W; x += 24) {
+                        if (Math.abs(x - gap) > GAP_HALF)
                             spawnBullet(x, -8, PI / 2, 2.8, {
                                 r: 6,
                                 col: "#f80",
@@ -577,7 +631,7 @@
                             r: 6,
                         });
                 },
-                // 縦ビームの隙間が動く
+                // 縦ビーム(＋少なめの横ビーム)の隙間が動く
                 vbeam(t) {
                     if (t === 0 || t === 150) {
                         const offset = t ? 40 : 0;
@@ -595,6 +649,11 @@
                                 36,
                                 0,
                             );
+                    }
+                    // horizontal beams: fewer than vertical (3 per wave), fired between the vertical waves
+                    if (t === 70 || t === 210) {
+                        const ys = t === 70 ? [180, 340, 500] : [260, 420, 580];
+                        for (const y of ys) spawnBeam(0, y, 0, 0, 50, 40, 36, 0);
                     }
                     if (t % 45 === 20) bossShot(aimFromBoss(), 3);
                 },
@@ -736,7 +795,6 @@
             // 玉を取った時の効果
             function takeOrb(kind) {
                 state = S.PLAY;
-                if (swapOrbs) kind = (kind + 4) % 5; // 効果入れ替え(見た目と効果がズレる)
                 switch (kind) {
                     case ORB.HEAL:
                         player.hp = PLAYER_MAX_HP;
@@ -744,6 +802,8 @@
                         break; // 全回復＋ボス強化
                     case ORB.GAG:
                         state = S.GAG;
+                        gagStep = 0;
+                        gagLock = 0;
                         gagText = pick(GAG_TEXTS);
                         break;
                     case ORB.DOUBLE:
@@ -955,18 +1015,19 @@
                 switch (state) {
                     case S.SELECT:
                         movePlayer();
-                        ORB_COLORS.forEach((_, i) => {
-                            if (
-                                Math.hypot(
-                                    selectOrbX(i) - player.x,
-                                    300 - player.y,
-                                ) < 24
-                            )
-                                takeOrb(i);
-                        });
+                        for (let i = 0; i < SELECT_ORBS.length; i++) {
+                            const o = selectOrbPos(i);
+                            if (Math.hypot(o.x - player.x, o.y - player.y) < SEL_PICK) {
+                                takeOrb(selectEffect(i));
+                                break;
+                            }
+                        }
                         break;
                     case S.PLAY:
                         updatePlay();
+                        break;
+                    case S.GAG:
+                        if (gagLock > 0) gagLock--;
                         break;
                     case S.FAKE:
                         if (--fakeTimer <= 0) state = S.PLAY;
@@ -1020,11 +1081,12 @@
             }
 
             function drawSelect() {
-                drawText("好きな玉を選んでください", CX, 150, 24, "#fff");
-                drawText("WASDで移動", CX, 190, 16, "#889");
-                ORB_COLORS.forEach((c, i) => {
-                    drawCircle(selectOrbX(i), 300, 20, c);
-                    drawCircle(selectOrbX(i), 300, 26, c + "8", false);
+                drawText("好きな玉を選んでください", CX, 240, 24, "#fff");
+                drawText("WASDで移動", CX, 400, 16, "#889");
+                SELECT_ORBS.forEach((o, i) => {
+                    const q = selectOrbPos(i);
+                    drawCircle(q.x, q.y, SEL_R, o.c);
+                    drawCircle(q.x, q.y, SEL_R + 5, o.c + "8", false);
                 });
                 drawPlayer("#4df");
             }
@@ -1132,11 +1194,28 @@
                     case S.GAG: {
                         const b = BTN_GAG_DONE;
                         fillScreen("rgba(0,0,40,.9)");
-                        drawText("一発芸タイム！", CX, 200, 30, "#6af");
-                        drawText(gagText, CX, 320, 28, "#fff");
-                        ctx.fillStyle = "#6af";
+                        if (gagStep === 0) {
+                            drawText("一発芸タイム！", CX, 200, 30, "#6af");
+                            drawText(gagText, CX, 320, 28, "#fff");
+                        } else {
+                            drawText(
+                                "最終確認 " + gagStep + "/" + GAG_CONFIRMS.length,
+                                CX,
+                                200,
+                                30,
+                                "#fc3",
+                            );
+                            drawText(GAG_CONFIRMS[gagStep - 1], CX, 320, 26, "#fff");
+                        }
+                        ctx.fillStyle = gagLock > 0 ? "#456" : "#6af";
                         ctx.fillRect(b.x, b.y, b.w, b.h);
-                        drawText("やりました！", CX, 460, 22, "#012");
+                        drawText(
+                            gagStep === 0 ? "やりました！" : "はい",
+                            CX,
+                            460,
+                            22,
+                            "#012",
+                        );
                         drawText(
                             "終わったらボタンを押してね",
                             CX,
