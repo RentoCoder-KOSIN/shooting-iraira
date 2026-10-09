@@ -112,6 +112,7 @@ const MODES = [
         bossHealRatio: 0.3,
         redDmgMul: 3,
         ranked: true,
+        rowWave: true, // the orange wall: every row has its own speed wave
     },
     {
         id: "normal",
@@ -126,6 +127,7 @@ const MODES = [
         bossHealRatio: 0.2,
         redDmgMul: 2,
         ranked: true, // 通常モードもランキングに登録される（モードごとに別のボード）
+        rowWave: false, // the orange wall: the whole wall speeds up / slows down together (no per-row wave)
     },
     {
         // RLモード: 理不尽モードと同じ7形態・同じHP・同じ玉の効果。違うのはボスの中身だけ。
@@ -142,6 +144,7 @@ const MODES = [
         bossHealRatio: 0.3,
         redDmgMul: 3,
         ranked: false, // the boss is different for every player, so the scores cannot be compared
+        rowWave: true, // the orange wall: every row has its own speed wave (same as 理不尽モード)
         rl: true, // the boss is controlled by RL (rl.js)
     },
 ];
@@ -384,8 +387,8 @@ const BULLET_TYPES = {
     yellow: { color: "#ff0" }, // yellow, used for the "different" shots
     cyan: { color: "#5cf" }, // used by the "follow" pattern
     aqua: { color: "#0ff" }, // used by the "fake homing" pattern
-    // the big orange bullets of the wall. All of them share ONE speed (see wallPath / wallPace)
-    // so a later row can never catch up with or pass an earlier row.
+    // the big orange bullets of the wall. Every ROW has its own speed (see wallPath / wallPace),
+    // but a row can never catch up with or pass the row in front of it.
     wall: { r: 6, color: "#f80", path: "wallPath", paces: ["wallPace"], randomTempo: false },
     homing: { r: 6, color: "#f6f", path: "homing", homeFrames: 80 }, // chases the player for a while
     trail: { r: 4, color: "#fa0", delay: 40 }, // left behind the player, appears later
@@ -446,9 +449,9 @@ const PACES = {
     // accel bullets: crawls at first, then speeds up to about twice the normal speed
     ramp: (b) => Math.min(2.2, 0.35 + b.age / 40),
 
-    // wall bullets: the speed factor depends on the GAME time, not on the bullet's age,
-    // so every wall bullet gets the same factor in the same frame (see wallFactor)
-    wallPace: () => wallFactor(),
+    // wall bullets: the speed factor belongs to the ROW of the bullet (see wallStepOnce),
+    // so a whole row speeds up / slows down together and rows never overtake each other
+    wallPace: (b) => wallRowFactor(b),
 };
 
 /* ============================================================================
@@ -586,20 +589,37 @@ const WALL_SPEED = 2.8; // wall pattern: base fall speed (pixels per frame)
 const WALL_MAX_V = 4.6;
 const WALL_GAP_SLOPE = 0.3; // how fast the gap swings from row to row (smaller = gentler)
 const WALL_ROW_SPACING = 68; // wall pattern: distance between rows in pixels (always kept)
-// Wall tempo (緩急): the WHOLE wall stops / dashes together, so the rows never overtake each other.
-const WALL_EVENT_GAP = [50, 110]; // frames between two tempo events
+// Wall tempo (緩急): every ROW has its own speed. The speed wave is shifted from row to row, so the
+// wave travels through the wall, and a row can stop / dash on its own. A row can NEVER catch up with
+// the row in front of it (WALL_MIN_ROW_GAP), so rows never overtake or touch each other.
+const WALL_MIN_ROW_GAP = 56; // rows never come closer than this (a bit less than WALL_ROW_SPACING = 68)
+const WALL_ROW_PHASE = 0.9; // wave phase shift per row in radians (bigger = a shorter wave through the rows)
+const WALL_EVENT_CHANCE = 0.3; // chance that a row gets its own stop / dash
+const WALL_EVENT_Y = [120, 380]; // a row starts its event when it reaches a y inside this range
 const WALL_EVENTS = [
-    { kind: "stop", weight: 1, len: [25, 55] }, // stops for `len` frames, then bursts forward
+    { kind: "stop", weight: 1, len: [25, 55] }, // the row stops for `len` frames, then bursts forward
     { kind: "dash", weight: 1, slow: [25, 45], len: [30, 45] }, // creeps for `slow`, then dashes for `len`
 ];
 
-let wallEvent = null; // the tempo event in progress: { kind, start, slow, len }
-let wallNextEvent = 0; // frame when the next event starts
-let wallScroll = 0; // distance the wall has moved since the last row (decides when a row is added)
+let wallList = []; // the rows on the screen, the oldest (lowest) first: { y, idx, f, plan, ev }
 let wallRows = 0; // rows fired so far in this pattern
-
-// Speed factor of the wall at the current frame (the same for every wall bullet)
-function wallFactor() {
+let wallStepFrame = -1; // the frame in which the rows were last moved (they move once per frame)
+// 通常モード (mode.rowWave = false): the WHOLE wall shares one speed wave and stops / dashes together
+// (the old behaviour), so no row is ever faster or slower than another.
+const WALL_EVENT_GAP = [50, 110]; // frames between two whole-wall tempo events
+let wallEvent = null; // the whole-wall tempo event in progress: { kind, start, slow, len }
+let wallNextEvent = 0; // frame when the next whole-wall event starts
+let wallFiring = false; // the pattern is still firing rows (new whole-wall events start only then)
+function startWallEvent() {
+    let roll = Math.random() * WALL_EVENTS.reduce((s, e) => s + e.weight, 0);
+    const def = WALL_EVENTS.find((e) => (roll -= e.weight) < 0) || WALL_EVENTS[0];
+    const slow = def.slow ? rand(...def.slow) : 0;
+    const len = rand(...def.len);
+    wallEvent = { kind: def.kind, start: frame, slow, len };
+    wallNextEvent = frame + slow + len + rand(...WALL_EVENT_GAP);
+}
+function wallSyncFactor() {
+    if (wallFiring && frame >= wallNextEvent) startWallEvent();
     let f = 1 + WAVE_AMP * Math.sin((2 * PI * frame) / WAVE_PERIOD);
     const e = wallEvent;
     if (e) {
@@ -610,38 +630,77 @@ function wallFactor() {
         } else if (dt < e.slow) f *= 0.45;
         else if (dt < e.slow + e.len) f *= 2.0;
     }
-    return Math.min(f, WALL_MAX_V / (WALL_SPEED * speedMul)); // speed cap (see WALL_MAX_V)
+    return f;
 }
-function startWallEvent() {
-    let roll = Math.random() * WALL_EVENTS.reduce((s, e) => s + e.weight, 0);
-    const def = WALL_EVENTS.find((e) => (roll -= e.weight) < 0) || WALL_EVENTS[0];
-    const slow = def.slow ? rand(...def.slow) : 0;
-    const len = rand(...def.len);
-    wallEvent = { kind: def.kind, start: frame, slow, len };
-    wallNextEvent = frame + slow + len + rand(...WALL_EVENT_GAP);
+
+// Moves every row by this frame's distance and stores it as row.f (the speed factor of its bullets).
+// Called from wallRun() and from the bullets' pace, so the rows keep moving after the pattern is over.
+function wallStepOnce() {
+    if (wallStepFrame === frame) return;
+    wallStepFrame = frame;
+    const base = WALL_SPEED * speedMul;
+    const cap = WALL_MAX_V / base; // speed cap (see WALL_MAX_V)
+    let frontY = Infinity; // y of the row in front of this one
+    const rowWave = gameMode.rowWave; // false: every row gets the same factor (通常モード)
+    const syncF = rowWave ? 1 : wallSyncFactor();
+    for (const r of wallList) {
+        let f = syncF;
+        if (rowWave) {
+            f = 1 + WAVE_AMP * Math.sin((2 * PI * frame) / WAVE_PERIOD + r.idx * WALL_ROW_PHASE);
+            if (!r.ev && r.plan && r.y >= r.plan.atY) r.ev = { ...r.plan, start: frame };
+            const e = r.ev;
+            if (e) {
+                const dt = frame - e.start;
+                if (e.kind === "stop") {
+                    if (dt < e.len) f = 0;
+                    else f *= 1 + 1.2 * Math.exp(-(dt - e.len) / 30);
+                } else if (dt < e.slow) f *= 0.45;
+                else if (dt < e.slow + e.len) f *= 2.0;
+            }
+        }
+        let d = base * Math.min(f, cap);
+        d = Math.max(0, Math.min(d, frontY - WALL_MIN_ROW_GAP - r.y)); // never pass / touch the row in front
+        r.f = d / base;
+        r.y += d;
+        frontY = r.y;
+    }
+    wallList = wallList.filter((r) => r.y < H + 30);
+}
+// the pace of a wall bullet = the speed factor of its row
+function wallRowFactor(b) {
+    wallStepOnce();
+    return b.row ? b.row.f : 1;
+}
+function newWallRow() {
+    let plan = null;
+    if (gameMode.rowWave && Math.random() < WALL_EVENT_CHANCE) {
+        let roll = Math.random() * WALL_EVENTS.reduce((s, e) => s + e.weight, 0);
+        const def = WALL_EVENTS.find((e) => (roll -= e.weight) < 0) || WALL_EVENTS[0];
+        plan = { kind: def.kind, atY: rand(...WALL_EVENT_Y), slow: def.slow ? rand(...def.slow) : 0, len: rand(...def.len) };
+    }
+    return { y: -8, idx: wallRows, f: 0, plan, ev: null }; // f = 0: it starts to move next frame
 }
 
 // The wall pattern as a function: dir = 1 sweeps the gap to the right first, dir = -1 (mirrored) to the left first.
 function wallRun(t, dir) {
     if (t === 0) {
         wallRows = 0;
-        wallScroll = WALL_ROW_SPACING; // fires the first row right away
+        if (!bullets.some((b) => b.type === "wall")) wallList = []; // forget rows whose bullets are gone
         wallEvent = null;
         wallNextEvent = frame + rand(...WALL_EVENT_GAP);
     }
+    wallFiring = t < 340;
+    wallStepOnce();
     if (t >= 340) return;
-    if (frame >= wallNextEvent) startWallEvent();
-    // how far the wall moves in this frame (bullets move by exactly this much)
-    const v = WALL_SPEED * speedMul * wallFactor();
-    wallScroll += v;
-    if (wallScroll < WALL_ROW_SPACING) return;
-    wallScroll -= WALL_ROW_SPACING;
+    const newest = wallList[wallList.length - 1];
+    if (newest && newest.y < -8 + WALL_ROW_SPACING) return; // the next row is fired when the last one has moved far enough
     // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
     const gap = CX + dir * Math.sin(wallRows * WALL_GAP_SLOPE * (480 / W)) * 150 * (W / 480);
     const shift = wallRows % 2 ? 12 : 0;
-    const y = -8 + wallScroll - v; // exact spacing even when the wall is fast
+    const row = newWallRow();
+    wallList.push(row);
     for (let x = 10 + shift; x < W; x += 24) {
-        if (Math.abs(x - gap) > GAP_HALF) shoot("wall", x, y, PI / 2, WALL_SPEED);
+        if (Math.abs(x - gap) > GAP_HALF) shoot("wall", x, row.y, PI / 2, WALL_SPEED, { row });
     }
     wallRows++;
 }
@@ -696,7 +755,7 @@ const PATTERNS = {
     },
 
     // a wall of bullets with a moving gap. Odd rows are shifted (checkerboard).
-    // Rows are fired by distance (WALL_ROW_SPACING), and the whole wall shares one speed.
+    // Rows are fired by distance (WALL_ROW_SPACING); every row has its own speed wave (see wallStepOnce).
     wall: {
         duration: 360,
         waitClear: "wall", // the next step (beams etc.) waits until every "wall" bullet has left the screen
