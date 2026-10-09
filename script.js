@@ -695,8 +695,8 @@ canvas.addEventListener("click", (e) => {
     } else if (practice && (state === S.OVER || state === S.WIN)) {
         if (inButton(p, practRetryBtn())) startPractice();
         else if (inButton(p, practMenuBtn())) exitPractice();
-    } else if (state === S.TITLE && SCORE_ENABLED && MODES.some((_, i) => inButton(p, boardTab(i)))) {
-        MODES.forEach((m, i) => {
+    } else if (state === S.TITLE && SCORE_ENABLED && RANKED_MODES.some((_, i) => inButton(p, boardTab(i)))) {
+        RANKED_MODES.forEach((m, i) => {
             if (inButton(p, boardTab(i))) setBoard(m.id); // switch the ranking (does not start the game)
         });
     } else {
@@ -1221,6 +1221,7 @@ function drawField() {
 // top 10 at the top of the title screen: "rank. name", the score, the time each form was defeated and the HP left
 const SCORE_X = 118; // right edge of the score column
 const SCORE_COLS_X = [164, 209, 254, 299, 344, 389, 434]; // right edges of the form time columns (7 forms at most)
+const RANKED_MODES = MODES.filter((m) => m.ranked); // only these have a ranking (RLモード has none)
 const boardTab = (i) => ({ x: CX - 112 + i * 118, y: 184, w: 106, h: 20 }); // buttons that switch the ranking
 // shorten a text with "…" until it fits in maxW pixels (uses the current font)
 function fitText(str, maxW) {
@@ -1275,7 +1276,7 @@ function drawScoreboard() {
 // the two buttons under the ranking: 理不尽 / 通常
 function drawBoardTabs() {
     if (!SCORE_ENABLED) return;
-    MODES.forEach((m, i) => {
+    RANKED_MODES.forEach((m, i) => {
         const b = boardTab(i);
         const sel = m.id === boardMode;
         ctx.fillStyle = sel ? m.color : "#2a2a3c";

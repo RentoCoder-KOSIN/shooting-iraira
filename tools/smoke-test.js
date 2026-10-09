@@ -48,7 +48,8 @@ const t = vm.runInContext(`(function () {
     function frames(n) { for (let i = 0; i < n; i++) update(); }
     function drawAll() { draw(); }
 
-    // title -> mode select
+    // title: only the ranked modes get a ranking tab (RLモード has none)
+    ok("ranking tabs: only hard + normal", RANKED_MODES.length === 2 && RANKED_MODES.every((m) => boards[m.id]));
     drawAll();
     state = S.MODE; drawAll();
     ok("mode menu has 4 entries (hard, normal, rl, practice)", MODE_MENU.length === 4 && MODE_MENU[2].id === "rl");
