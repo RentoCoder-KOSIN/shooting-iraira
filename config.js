@@ -372,7 +372,7 @@ const BULLET_TYPES = {
     // goes out, then turns around and comes back the same way (age = turnAt)
     boomerang: { r: 6, color: "#6f6", path: "boomerang", turnAt: 60, randomTempo: false },
     // bursts into a small ring of normal bullets (age = splitAt)
-    splitter: { r: 7, color: "#fc6", path: "splitter", splitAt: 50, randomTempo: false },
+    splitter: { r: 7, color: "#fc6", path: "splitter", splitAt: 60, randomTempo: false },
     // big and slow
     big: { r: 11, color: "#e8e", randomTempo: false },
     // starts slow and keeps speeding up
@@ -494,7 +494,7 @@ const PATHS = {
                 y = b.y,
                 a = aim(x, y);
             b.x = -999;
-            later(1, () => ring("normal", x, y, 8, 2.2, a, { r: 4 }));
+            later(1, () => ring("normal", x, y, 8, 1.8, a, { r: 4 })); // the ring speed after the burst
         }
     },
 
@@ -550,8 +550,14 @@ const PATHS = {
  *    },
  *  Then add "mine" to a list in SEQUENCES below.
  * ========================================================================== */
-const GAP_HALF = 36; // wall pattern: half width of the safe gap in pixels
+const GAP_HALF = 40; // wall pattern: half width of the safe gap in pixels
 const WALL_SPEED = 2.8; // wall pattern: base fall speed (pixels per frame)
+// The wall can never move faster than this (pixels per frame), however many tempo events / orbs stack up.
+// Why: the gap shifts sideways by up to WALL_GAP_SLOPE * 150 px per row, and rows arrive every
+// WALL_ROW_SPACING / speed frames. At 4.6 px/frame and 0.3 that is about 3 px/frame of sideways
+// movement needed, which is below the player speed (PLAYER_SPEED = 4), so the wall stays dodgeable.
+const WALL_MAX_V = 4.6;
+const WALL_GAP_SLOPE = 0.3; // how fast the gap swings from row to row (smaller = gentler)
 const WALL_ROW_SPACING = 68; // wall pattern: distance between rows in pixels (always kept)
 // Wall tempo (緩急): the WHOLE wall stops / dashes together, so the rows never overtake each other.
 const WALL_EVENT_GAP = [50, 110]; // frames between two tempo events
@@ -577,7 +583,7 @@ function wallFactor() {
         } else if (dt < e.slow) f *= 0.45;
         else if (dt < e.slow + e.len) f *= 2.0;
     }
-    return f;
+    return Math.min(f, WALL_MAX_V / (WALL_SPEED * speedMul)); // speed cap (see WALL_MAX_V)
 }
 function startWallEvent() {
     let roll = Math.random() * WALL_EVENTS.reduce((s, e) => s + e.weight, 0);
@@ -604,7 +610,7 @@ function wallRun(t, dir) {
     if (wallScroll < WALL_ROW_SPACING) return;
     wallScroll -= WALL_ROW_SPACING;
     // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
-    const gap = CX + dir * Math.sin(wallRows * 0.45 * (480 / W)) * 150 * (W / 480);
+    const gap = CX + dir * Math.sin(wallRows * WALL_GAP_SLOPE * (480 / W)) * 150 * (W / 480);
     const shift = wallRows % 2 ? 12 : 0;
     const y = -8 + wallScroll - v; // exact spacing even when the wall is fast
     for (let x = 10 + shift; x < W; x += 24) {
@@ -842,7 +848,7 @@ const PATTERNS = {
     burst: {
         duration: 300,
         run(t) {
-            if (t % 70 === 0 && t < 240) bossShot("splitter", aimFromBoss(), 2.6);
+            if (t % 70 === 0 && t < 240) bossShot("splitter", aimFromBoss(), 2.0);
             if (t % 90 === 45) bossRing("normal", 8, 2, t * 0.1);
         },
     },
