@@ -125,7 +125,7 @@ const MODES = [
         startSpeedMul: 1.0,
         bossHealRatio: 0.2,
         redDmgMul: 2,
-        ranked: false,
+        ranked: true, // 通常モードもランキングに登録される（モードごとに別のボード）
     },
 ];
 

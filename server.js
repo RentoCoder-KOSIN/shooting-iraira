@@ -2,10 +2,14 @@
 /* ============================================================================
  *  server.js - serves the game and keeps the shared ranking.
  *
- *    GET  /api/scores  -> { scores: [top 10] }
- *    POST /api/scores  -> { rank, scores }   body: { name, form, cleared, formMs, totalMs, splits }
- *      splits = [t1, ... t7] (4 entries for old records): the run time (ms) at which each form was defeated,
+ *    GET  /api/scores?mode=hard|normal -> { scores: [top 10 of that mode] }   (default: hard)
+ *    POST /api/scores  -> { rank, score, scores }
+ *         body: { mode, name, form, cleared, formMs, totalMs, splits, hp }
+ *      mode   = "hard" (理不尽, 7 forms) or "normal" (通常, 4 forms): each mode has its own ranking
+ *      splits = one entry per form: the run time (ms) at which each form was defeated,
  *               null for a form that was not defeated (shown as NA)
+ *      hp     = HP left when the run ended (only a CLEAR keeps HP, otherwise 0)
+ *      The SCORE is computed here with scoring.js (the client value is never trusted).
  *
  *    POST /api/scores/reset -> { ok: true, scores: [] }   body: { password }
  *      admin only: deletes ALL records. The password is checked here on the server
@@ -16,8 +20,8 @@
  *    DATABASE_URL unset -> scores.json next to this file (handy for local testing only:
  *                          Render's free web services lose local files on every restart)
  *
- *  Ranking: CLEAR runs first (shortest time first), then the highest form reached,
- *  then the longest time inside that form. Ties: the earlier record stays above.
+ *  Ranking (per mode): the highest SCORE first (see scoring.js). Ties: the earlier record stays above.
+ *  Records from before the modes were separated have no mode: they stay in the database but are not shown.
  *
  *  NOTE: the game runs in the player's browser, so a determined cheater can send fake
  *  scores. The checks below only stop obviously impossible values and spam.
@@ -29,10 +33,10 @@ const path = require("path");
 const PORT = process.env.PORT || 3000;
 const TOP_N = 10;
 const NAME_MAX = 12;
-const FORM_COUNTS = [4, 7]; // possible numbers of forms (4 = old records, 7 = 理不尽モード)
-const MAX_FORMS = Math.max(...FORM_COUNTS);
+const Scoring = require("./scoring.js"); // the score formula (shared with the browser)
+const MODE_IDS = Object.keys(Scoring.MODES); // "hard", "normal"
 const MAX_MS = 6 * 60 * 60 * 1000; // no run is longer than 6 hours
-const MIN_CLEAR_MS = 45 * 1000; // a real CLEAR cannot be faster than this
+const MIN_CLEAR_MS = { hard: 60 * 1000, normal: 30 * 1000 }; // a real CLEAR cannot be faster than this
 const POST_LIMIT = { max: 6, windowMs: 60 * 1000 }; // per IP
 const RESET_LIMIT = { max: 5, windowMs: 60 * 1000 }; // per IP (admin password guessing)
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "mint"; // keep in sync with config.js unless the env var is set
@@ -40,35 +44,34 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "mint"; // keep in sync wit
 /* ---------- validation ---------- */
 function parseScore(body) {
     const b = body && typeof body === "object" ? body : {};
-    const { form, cleared, formMs, totalMs } = b;
+    const { mode, form, cleared, formMs, totalMs, hp } = b;
     const bad = (error) => ({ error });
-    if (!Number.isInteger(form) || form < 1 || form > MAX_FORMS) return bad("bad form");
+    if (!MODE_IDS.includes(mode)) return bad("bad mode");
+    const n = Scoring.MODES[mode].forms; // number of forms of this mode
+    if (!Number.isInteger(form) || form < 1 || form > n) return bad("bad form");
     if (typeof cleared !== "boolean") return bad("bad cleared");
     if (!Number.isInteger(formMs) || !Number.isInteger(totalMs))
         return bad("bad time");
     if (formMs < 0 || totalMs < 500 || totalMs > MAX_MS || formMs > totalMs)
         return bad("bad time");
-    if (cleared && (!FORM_COUNTS.includes(form) || totalMs < MIN_CLEAR_MS))
+    if (cleared && (form !== n || totalMs < MIN_CLEAR_MS[mode]))
         return bad("bad clear");
+    // HP left: a CLEAR keeps at least 1 HP, every other run ended with 0
+    if (!Number.isInteger(hp) || hp < 0 || hp > Scoring.MAX_HP) return bad("bad hp");
+    if (cleared ? hp < 1 : hp !== 0) return bad("bad hp");
 
     // splits: cumulative times at which each form was defeated (null = not defeated)
-    // 4 entries (old records / 通常モード) or 7 entries (理不尽モード)
-    let splits = null;
-    if (b.splits !== undefined && b.splits !== null) {
-        if (!Array.isArray(b.splits) || !FORM_COUNTS.includes(b.splits.length)) return bad("bad splits");
-        const n = b.splits.length;
-        if (form > n || (cleared && form !== n)) return bad("bad splits");
-        const defeated = cleared ? n : form - 1; // forms before the reached one are defeated
-        let prev = 0;
-        for (let i = 0; i < n; i++) {
-            const v = b.splits[i];
-            if (i < defeated) {
-                if (!Number.isInteger(v) || v < prev || v > totalMs) return bad("bad splits");
-                prev = v;
-            } else if (v !== null) return bad("bad splits");
-        }
-        splits = b.splits;
+    if (!Array.isArray(b.splits) || b.splits.length !== n) return bad("bad splits");
+    const defeated = cleared ? n : form - 1; // forms before the reached one are defeated
+    let prev = 0;
+    for (let i = 0; i < n; i++) {
+        const v = b.splits[i];
+        if (i < defeated) {
+            if (!Number.isInteger(v) || v < prev || v > totalMs) return bad("bad splits");
+            prev = v;
+        } else if (v !== null) return bad("bad splits");
     }
+    const splits = b.splits;
 
     let name = typeof b.name === "string" ? b.name : "";
     name = name
@@ -77,7 +80,8 @@ function parseScore(body) {
         .trim();
     name = [...name].slice(0, NAME_MAX).join("");
     if (!name) name = "名無し";
-    return { score: { name, form, cleared, formMs, totalMs, splits } };
+    const score = Scoring.compute(mode, { cleared, form, formMs, splits, hp }).total;
+    return { score: { mode, name, form, cleared, formMs, totalMs, splits, hp, score } };
 }
 
 /* ---------- storage: PostgreSQL ---------- */
@@ -110,36 +114,37 @@ async function createPgStore(url) {
         )`);
     // added later: the time each form was defeated (old rows keep NULL)
     await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS splits JSONB");
-    const ORDER =
-        "cleared DESC, CASE WHEN cleared THEN total_ms END ASC, form DESC, form_ms DESC, id ASC";
+    // added later: one ranking per mode + score-based ranking. Old rows keep NULL mode (= hidden, not deleted)
+    await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS mode TEXT");
+    await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS hp INTEGER");
+    await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS score INTEGER");
+    await pool.query("CREATE INDEX IF NOT EXISTS scores_mode_score ON scores (mode, score DESC)");
     const toRow = (r) => ({
+        mode: r.mode,
         name: r.name,
         form: r.form,
         cleared: r.cleared,
         formMs: r.form_ms,
         totalMs: r.total_ms,
         splits: r.splits || null,
+        hp: r.hp,
+        score: r.score,
     });
     return {
         kind: "postgres",
-        async top(n) {
+        async top(mode, n) {
             const r = await pool.query(
-                `SELECT name, form, cleared, form_ms, total_ms, splits FROM scores ORDER BY ${ORDER} LIMIT $1`,
-                [n],
+                "SELECT mode, name, form, cleared, form_ms, total_ms, splits, hp, score FROM scores WHERE mode = $1 ORDER BY score DESC, id ASC LIMIT $2",
+                [mode, n],
             );
             return r.rows.map(toRow);
         },
         async add(s) {
-            // rank = number of records that stay above this one (+1); earlier records win ties
-            const r = await pool.query(
-                `SELECT COUNT(*)::int AS n FROM scores
-                 WHERE ($1::boolean AND cleared AND total_ms <= $2::int)
-                    OR (NOT $1::boolean AND (cleared OR form > $3::int OR (form = $3::int AND form_ms >= $4::int)))`,
-                [s.cleared, s.totalMs, s.form, s.formMs],
-            );
+            // rank = number of records of the same mode that stay above this one (+1); earlier records win ties
+            const r = await pool.query("SELECT COUNT(*)::int AS n FROM scores WHERE mode = $1 AND score >= $2::int", [s.mode, s.score]);
             await pool.query(
-                "INSERT INTO scores (name, form, cleared, form_ms, total_ms, splits) VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
-                [s.name, s.form, s.cleared, s.formMs, s.totalMs, s.splits ? JSON.stringify(s.splits) : null],
+                "INSERT INTO scores (mode, name, form, cleared, form_ms, total_ms, splits, hp, score) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)",
+                [s.mode, s.name, s.form, s.cleared, s.formMs, s.totalMs, JSON.stringify(s.splits), s.hp, s.score],
             );
             return r.rows[0].n + 1;
         },
@@ -155,24 +160,16 @@ function createFileStore(file) {
     try {
         rows = JSON.parse(fs.readFileSync(file, "utf8"));
     } catch (_) {}
-    // does record r stay above (or tie with) record s?
-    const above = (r, s) =>
-        r.cleared
-            ? !s.cleared || r.totalMs <= s.totalMs
-            : !s.cleared &&
-              (r.form > s.form || (r.form === s.form && r.formMs >= s.formMs));
-    const compare = (a, b) => {
-        if (a.cleared !== b.cleared) return a.cleared ? -1 : 1;
-        if (a.cleared) return a.totalMs - b.totalMs;
-        return b.form - a.form || b.formMs - a.formMs;
-    };
+    // records of one mode, best score first (the sort is stable: earlier records stay above on ties).
+    // Old records have no mode and are ignored.
+    const ofMode = (mode) => rows.filter((r) => r.mode === mode).sort((a, b) => b.score - a.score);
     return {
         kind: "json-file",
-        async top(n) {
-            return [...rows].sort(compare).slice(0, n);
+        async top(mode, n) {
+            return ofMode(mode).slice(0, n);
         },
         async add(s) {
-            const rank = rows.filter((r) => above(r, s)).length + 1;
+            const rank = rows.filter((r) => r.mode === s.mode && r.score >= s.score).length + 1;
             rows.push(s);
             fs.writeFileSync(file, JSON.stringify(rows));
             return rank;
@@ -219,7 +216,7 @@ function createApp(store) {
     app.disable("x-powered-by");
 
     // Only the game files are public (not server.js / package.json / scores.json)
-    const FILES = ["index.html", "style.css", "script.js", "config.js"];
+    const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js"];
     app.get("/", (req, res) =>
         res.sendFile(path.join(__dirname, "index.html")),
     );
@@ -229,8 +226,9 @@ function createApp(store) {
 
     app.get("/api/scores", async (req, res) => {
         try {
+            const mode = MODE_IDS.includes(req.query.mode) ? req.query.mode : "hard";
             res.set("Cache-Control", "no-store");
-            res.json({ scores: await store.top(TOP_N) });
+            res.json({ scores: await store.top(mode, TOP_N) });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: "server error" });
@@ -251,7 +249,7 @@ function createApp(store) {
             try {
                 const rank = await store.add(parsed.score);
                 res.set("Cache-Control", "no-store");
-                res.json({ rank, scores: await store.top(TOP_N) });
+                res.json({ rank, score: parsed.score.score, scores: await store.top(parsed.score.mode, TOP_N) });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ error: "server error" });
@@ -275,7 +273,7 @@ function createApp(store) {
                 await store.clear();
                 console.warn("[scores] all records were reset by admin (" + req.ip + ")");
                 res.set("Cache-Control", "no-store");
-                res.json({ ok: true, scores: await store.top(TOP_N) });
+                res.json({ ok: true, scores: [] });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ error: "server error" });

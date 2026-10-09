@@ -67,7 +67,7 @@ let keyDebug; // { text, t } debug text of the last pressed key
 let formSplits; // run time (ms) at the moment each form was defeated, null = not defeated yet
 let runFrames, formFrames; // frames spent actually playing: whole run / current form (this is the score)
 let usedAdmin; // invincible mode was on at some point in this run -> not recorded
-let lastRun; // the finished run: { form, cleared, formMs, totalMs, rank }
+let lastRun; // the finished run: { mode, form, cleared, formMs, totalMs, splits, hp, score, parts, rank }
 let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
 let scoreOpen = false; // the name entry panel is open
 
@@ -99,6 +99,7 @@ function chooseMode(i) {
         return;
     }
     gameMode = MODES[i];
+    boardMode = gameMode.id; // after the run, the title screen shows this mode's ranking
     speedMul = gameMode.startSpeedMul;
     // the number of forms depends on the mode: prepare the first form and the split times
     boss.hp = boss.max = bossHpOf(0);
@@ -347,7 +348,7 @@ adminReset.addEventListener("click", async () => {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
-        scoreboard = { rows: data.scores || [], status: "ok", at: Date.now() };
+        boards = { hard: { rows: [], status: "ok", at: Date.now() }, normal: { rows: [], status: "ok", at: Date.now() } };
         adminResetMsg.textContent = "全スコアを削除しました";
     } catch (err) {
         adminResetMsg.textContent = "リセットできませんでした（" + (err.message || "error") + "）";
@@ -365,46 +366,54 @@ const scoreOk = document.getElementById("score-ok");
 const scoreSkip = document.getElementById("score-skip");
 scoreName.maxLength = SCORE_NAME_MAX;
 
-let scoreboard = { rows: [], status: "loading", at: 0 }; // status: loading / ok / error
+// One ranking per mode (hard = 理不尽, normal = 通常). status: loading / ok / error
+const newBoard = () => ({ rows: [], status: "loading", at: 0 });
+let boards = { hard: newBoard(), normal: newBoard() };
+let boardMode = "hard"; // the ranking shown on the title screen
+function setBoard(mode) {
+    boardMode = mode;
+    fetchScores(false, mode); // load it if it is not loaded yet
+}
+const fmtScore = (n) => n.toLocaleString("en-US"); // 12345 -> "12,345"
 
 // 83700 ms -> "1:23.7"
 function fmtTime(ms) {
     const t = Math.floor(ms / 100);
     return Math.floor(t / 600) + ":" + String(Math.floor((t % 600) / 10)).padStart(2, "0") + "." + (t % 10);
 }
-// The split times of a ranking row (4 for old records, 7 for the 7-form 理不尽 mode). Old records
-// have no splits: a cleared one still knows its last split (= the clear time), everything else is
-// unknown. Missing entries are shown as NA.
-function splitsOf(r) {
-    if (Array.isArray(r.splits)) return r.splits;
-    return [null, null, null, r.cleared ? r.totalMs : null];
-}
 
-async function fetchScores(force = false) {
+async function fetchScores(force = false, mode = boardMode) {
     if (!SCORE_ENABLED) return;
     const now = Date.now();
-    if (!force && now - scoreboard.at < SCORE_REFETCH_MIN_MS) return;
-    scoreboard.at = now;
+    if (!force && now - boards[mode].at < SCORE_REFETCH_MIN_MS) return;
+    boards[mode].at = now;
     try {
-        const res = await fetch(SCORE_API + "/api/scores");
+        const res = await fetch(SCORE_API + "/api/scores?mode=" + mode);
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
-        scoreboard = { rows: data.scores, status: "ok", at: now };
+        boards[mode] = { rows: data.scores, status: "ok", at: now };
     } catch (_) {
-        scoreboard.status = "error";
+        boards[mode].status = "error";
     }
 }
 
 // Called when a real game over / real CLEAR happens
 function finishRun(cleared) {
     lastRun = {
+        mode: gameMode.id,
         form: phase + 1,
         cleared,
         formMs: Math.round(formFrames * STEP_MS),
         totalMs: Math.round(runFrames * STEP_MS),
         splits: [...formSplits],
+        hp: cleared ? Math.max(0, player.hp) : 0, // only a CLEAR keeps its HP
         rank: 0,
     };
+    // the score (see scoring.js); a practice run has no score because it skips the earlier forms
+    if (!practice) {
+        lastRun.parts = Scoring.compute(lastRun.mode, lastRun);
+        lastRun.score = lastRun.parts.total;
+    }
     if (practice || !SCORE_ENABLED || usedAdmin || !gameMode.ranked) return; // practice is never recorded
     const token = ++runToken;
     setTimeout(() => {
@@ -415,9 +424,17 @@ function finishRun(cleared) {
 function openScore() {
     scoreOpen = true;
     for (const k in keys) delete keys[k]; // release held movement keys
-    scoreResult.textContent = lastRun.cleared
-        ? "CLEAR！ タイム " + fmtTime(lastRun.totalMs)
-        : "第" + FORM_NAMES[lastRun.form - 1] + "形態 " + fmtTime(lastRun.formMs) + "（生存 " + fmtTime(lastRun.totalMs) + "）";
+    const pt = lastRun.parts;
+    scoreResult.textContent =
+        gameMode.label + "\n" +
+        (lastRun.cleared
+            ? "CLEAR！ タイム " + fmtTime(lastRun.totalMs) + "　残り体力 " + lastRun.hp
+            : "第" + FORM_NAMES[lastRun.form - 1] + "形態 " + fmtTime(lastRun.formMs) + "（生存 " + fmtTime(lastRun.totalMs) + "）") +
+        "\nスコア " + fmtScore(lastRun.score) +
+        "\n形態 " + fmtScore(pt.formPts) + " ＋ タイム " + fmtScore(pt.timePts) +
+        (lastRun.cleared
+            ? " ＋ クリア " + fmtScore(pt.clear) + " ＋ 体力 " + fmtScore(pt.hp)
+            : " ＋ 生存 " + fmtScore(pt.survive));
     let saved = "";
     try {
         saved = localStorage.getItem(SCORE_NAME_KEY) || "";
@@ -444,15 +461,17 @@ async function submitScore() {
         const res = await fetch(SCORE_API + "/api/scores", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, form: run.form, cleared: run.cleared, formMs: run.formMs, totalMs: run.totalMs, splits: run.splits }),
+            body: JSON.stringify({ mode: run.mode, name, form: run.form, cleared: run.cleared, formMs: run.formMs, totalMs: run.totalMs, splits: run.splits, hp: run.hp }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
         run.rank = data.rank;
+        run.score = data.score; // the server's score is the official one
         try {
             localStorage.setItem(SCORE_NAME_KEY, name);
         } catch (_) {}
-        scoreboard = { rows: data.scores, status: "ok", at: Date.now() };
+        boards[run.mode] = { rows: data.scores, status: "ok", at: Date.now() };
+        boardMode = run.mode; // the title screen shows the ranking you just entered
         closeScore();
     } catch (err) {
         scoreMsg.textContent = "送信できませんでした（" + (err.message || "error") + "）";
@@ -545,6 +564,14 @@ window.addEventListener("keydown", (e) => {
         return;
     }
     keys[e.key.toLowerCase()] = true;
+    if (state === S.TITLE && SCORE_ENABLED && !e.repeat) {
+        const k = e.key.toLowerCase();
+        // A / D / arrows / Tab: switch between the two rankings
+        if (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright" || k === "tab") {
+            e.preventDefault();
+            setBoard(boardMode === "hard" ? "normal" : "hard");
+        }
+    }
     if (state === S.MODE && !e.repeat) {
         const k = e.key.toLowerCase();
         if (k === "w" || k === "arrowup") modeIdx = (modeIdx + MODE_MENU.length - 1) % MODE_MENU.length;
@@ -606,6 +633,10 @@ canvas.addEventListener("click", (e) => {
     } else if (practice && (state === S.OVER || state === S.WIN)) {
         if (inButton(p, practRetryBtn())) startPractice();
         else if (inButton(p, practMenuBtn())) exitPractice();
+    } else if (state === S.TITLE && SCORE_ENABLED && MODES.some((_, i) => inButton(p, boardTab(i)))) {
+        MODES.forEach((m, i) => {
+            if (inButton(p, boardTab(i))) setBoard(m.id); // switch the ranking (does not start the game)
+        });
     } else {
         advance();
     }
@@ -1118,47 +1149,81 @@ function drawField() {
         drawText("操作反転 " + Math.ceil(invertTimer / 60) + "秒", W - 10, H - 10, 16, "#f93", "right");
 }
 
-// top 10 at the top of the title screen: "rank. name" and the 7 split times (right edges of the columns)
-const SCORE_COLS_X = [170, 220, 270, 320, 370, 420, 470];
+// top 10 at the top of the title screen: "rank. name", the score, the time each form was defeated and the HP left
+const SCORE_X = 118; // right edge of the score column
+const SCORE_COLS_X = [164, 209, 254, 299, 344, 389, 434]; // right edges of the form time columns (7 forms at most)
+const boardTab = (i) => ({ x: CX - 112 + i * 118, y: 184, w: 106, h: 20 }); // buttons that switch the ranking
+// shorten a text with "…" until it fits in maxW pixels (uses the current font)
+function fitText(str, maxW) {
+    if (ctx.measureText(str).width <= maxW) return str;
+    const chars = [...str];
+    while (chars.length > 1 && ctx.measureText(chars.join("") + "…").width > maxW) chars.pop();
+    return chars.join("") + "…";
+}
 function drawScoreboard() {
     if (!SCORE_ENABLED) return;
+    const board = boards[boardMode];
+    const nForms = Scoring.MODES[boardMode].forms; // 7 for 理不尽, 4 for 通常
+    const hpX = SCORE_COLS_X[nForms - 1] + 40; // the HP column follows the last form column
     ctx.textAlign = "left";
     ctx.fillStyle = "#fc3";
     ctx.font = "bold 12px sans-serif";
     ctx.fillText("TOP " + SCORE_TOP_N, 10, 22);
     ctx.font = "9px sans-serif";
-    // column headers: the time at which each form was defeated
+    // column headers
     ctx.fillStyle = "#889";
     ctx.textAlign = "right";
-    SCORE_COLS_X.forEach((x, k) => ctx.fillText("第" + FORM_NAMES[k], x, 22));
-    if (!scoreboard.rows.length) {
-        ctx.fillStyle = "#889";
-        const msg = { loading: "読み込み中…", error: "ランキングを取得できません", ok: "まだ記録がありません" }[scoreboard.status];
+    ctx.fillText("SCORE", SCORE_X, 22);
+    SCORE_COLS_X.slice(0, nForms).forEach((x, k) => ctx.fillText("第" + FORM_NAMES[k], x, 22));
+    ctx.fillText("HP", hpX, 22);
+    if (!board.rows.length) {
+        ctx.textAlign = "left";
+        const msg = { loading: "読み込み中…", error: "ランキングを取得できません", ok: "まだ記録がありません" }[board.status];
         ctx.fillText(msg, 10, 40);
         return;
     }
-    scoreboard.rows.slice(0, SCORE_TOP_N).forEach((r, i) => {
+    board.rows.slice(0, SCORE_TOP_N).forEach((r, i) => {
         const y = 40 + i * 14;
-        ctx.fillStyle = i === 0 ? "#fd0" : "#ccd";
+        const main = i === 0 ? "#fd0" : "#ccd";
+        ctx.font = "9px sans-serif";
+        ctx.fillStyle = main;
         ctx.textAlign = "left";
-        ctx.fillText(i + 1 + ". " + r.name, 10, y, 100); // "rank. name"
+        ctx.fillText(fitText(i + 1 + ". " + r.name, 66), 10, y); // "rank. name"
         ctx.textAlign = "right";
-        const sp = splitsOf(r);
-        SCORE_COLS_X.forEach((x, k) => {
+        ctx.font = "bold 9px sans-serif";
+        ctx.fillText(fmtScore(r.score), SCORE_X, y);
+        ctx.font = "9px sans-serif";
+        const sp = r.splits || [];
+        SCORE_COLS_X.slice(0, nForms).forEach((x, k) => {
             const ms = sp[k];
-            ctx.fillStyle = ms == null ? "#667" : i === 0 ? "#fd0" : "#ccd";
+            ctx.fillStyle = ms == null ? "#667" : main;
             ctx.fillText(ms == null ? SCORE_NA_TEXT : fmtTime(ms), x, y);
         });
+        ctx.fillStyle = r.cleared ? main : "#667";
+        ctx.fillText(r.cleared ? "♥" + r.hp : SCORE_NA_TEXT, hpX, y);
     });
 }
-
-// result lines of the game over / clear screens
+// the two buttons under the ranking: 理不尽 / 通常
+function drawBoardTabs() {
+    if (!SCORE_ENABLED) return;
+    MODES.forEach((m, i) => {
+        const b = boardTab(i);
+        const sel = m.id === boardMode;
+        ctx.fillStyle = sel ? m.color : "#2a2a3c";
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = m.color;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        drawText(m.label.replace("モード", "") + "ランキング", b.x + b.w / 2, b.y + 14, 11, sel ? "#000" : "#ccd");
+    });
+}
 function drawRunResult(y1, y2) {
     if (!lastRun) return;
     drawText(
-        lastRun.cleared
-            ? "クリアタイム " + fmtTime(lastRun.totalMs)
-            : "第" + FORM_NAMES[lastRun.form - 1] + "形態　生存 " + fmtTime(lastRun.totalMs),
+        (lastRun.cleared
+            ? "クリアタイム " + fmtTime(lastRun.totalMs) + "　残り体力 " + lastRun.hp
+            : "第" + FORM_NAMES[lastRun.form - 1] + "形態　生存 " + fmtTime(lastRun.totalMs)) +
+            (lastRun.score != null ? "　スコア " + fmtScore(lastRun.score) : ""), // practice runs have no score
         CX, y1, 15, "#aab"
     );
     if (lastRun.rank) drawText(lastRun.rank + "位に登録しました！", CX, y2, 18, "#fd0");
@@ -1183,13 +1248,14 @@ function drawOverlay() {
             fillScreen("#10101c");
             ctx.font = "72px serif";
             ctx.textAlign = "center";
-            ctx.fillText("👿", CX, 240);
-            drawText("世界一", CX, 295, 36, "#fff");
-            drawText("イライラするゲーム", CX, 340, 40, "#f55");
-            drawText("難しいんじゃない。イライラするだけ。", CX, 390, 15, "#889");
+            ctx.fillText("👿", CX, 268);
+            drawText("世界一", CX, 323, 36, "#fff");
+            drawText("イライラするゲーム", CX, 368, 40, "#f55");
+            drawText("難しいんじゃない。イライラするだけ。", CX, 418, 15, "#889");
             if (frame % 60 < 40) drawText("タップ / クリック / Enter でスタート", CX, 500, 22, "#fff");
             drawText("移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動", CX, 560, 14, "#889");
             drawScoreboard();
+            drawBoardTabs();
             break;
         case S.MODE:
             fillScreen("#10101c");
@@ -1207,7 +1273,6 @@ function drawOverlay() {
             });
             drawText("W/S・矢印で選択、Enter か タップで決定", CX, 560, 14, "#889");
             if (modeIdx === PRACTICE_IDX) drawText("※練習モードはランキングに登録されません", CX, 590, 12, "#fc3");
-            else if (!MODES[modeIdx].ranked) drawText("※通常モードはランキングに登録されません", CX, 590, 12, "#fc3");
             break;
         case S.PRACT: {
             fillScreen("#10101c");

@@ -138,6 +138,7 @@ canvas {
 }
 
 #score-result {
+    white-space: pre-line; /* the result text has several lines */
     margin: 0 0 12px;
     font-size: 14px;
     color: #fc3;
