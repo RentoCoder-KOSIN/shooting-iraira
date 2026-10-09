@@ -199,6 +199,9 @@ const GAG_CONFIRMS = [
     "最終確認：もう思い残すことはありませんか？",
 ];
 const GAG_LOCK_FRAMES = 30; // ignore presses right after a press (prevents double-click skipping)
+// The confirmations have a "はい" and an "いいえ" button. Each confirmation, the two buttons swap places
+// with this chance (so mashing the same spot does not work). "いいえ" goes back to the gag.
+const GAG_SWAP_CHANCE = 0.4;
 
 const GAG_TEXTS = [
     "全力で変な顔をしてください",
@@ -279,6 +282,7 @@ const ORBS = {
             state = S.GAG;
             gagStep = 0;
             gagLock = 0;
+            gagSwap = false;
             gagText = pick(GAG_TEXTS);
         },
     },

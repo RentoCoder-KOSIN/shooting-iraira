@@ -32,6 +32,8 @@ const S = {
 const PLAYER_START = { x: 240, y: 580 }; // x follows the screen center (see layout())
 const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 }; // x follows the screen center
 const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x follows the screen center
+// the two buttons of a confirmation: side 0 = left, 1 = right (x follows the screen center)
+const gagBtn = (side) => ({ x: CX - 150 + side * 160, y: 420, w: 140, h: 60 });
 const MODE_BTN = { x: 90, y: 240, w: 300, h: 80, gap: 20 }; // mode select buttons (x follows the screen center)
 const modeBtn = (i) => ({ x: MODE_BTN.x, y: MODE_BTN.y + i * (MODE_BTN.h + MODE_BTN.gap), w: MODE_BTN.w, h: MODE_BTN.h });
 
@@ -61,6 +63,7 @@ let fakeTimer, clearTimer, gagText, tauntText;
 let fakeCount; // purple orbs taken in this run (decides how long the fake game over lasts)
 let invertTimer; // frames left of reversed controls
 let gagStep, gagLock; // gag confirmation progress / press cooldown
+let gagSwap; // true: the "はい" button is on the right and "いいえ" on the left (changes at random)
 let keyHealUsed; // the random-key heal was used
 let secretKey; // the one key that heals (chosen at random every game)
 let keyDebug; // { text, t } debug text of the last pressed key
@@ -499,18 +502,33 @@ function toggleFullscreen() {
     else enterFullscreen();
 }
 
-// "done" press in the gag state: needs GAG_CONFIRMS.length extra confirmations
-function pressGagDone() {
+// Gag state. Step 0: the "やりました！" button. Then GAG_CONFIRMS.length confirmations, each with
+// "はい" / "いいえ" (their places swap at random). "いいえ" goes back to the gag (step 0).
+function rollGagSwap() {
+    gagSwap = Math.random() < GAG_SWAP_CHANCE;
+}
+function pressGagAnswer(yes) {
     if (gagLock > 0) return;
     gagLock = GAG_LOCK_FRAMES;
-    if (gagStep < GAG_CONFIRMS.length) gagStep++;
-    else state = S.PLAY;
+    if (gagStep === 0) {
+        gagStep = 1; // "やりました！"
+        rollGagSwap();
+    } else if (!yes) {
+        gagStep = 0; // "いいえ": do it again
+    } else if (gagStep < GAG_CONFIRMS.length) {
+        gagStep++;
+        rollGagSwap();
+    } else state = S.PLAY;
+}
+// Enter / Space only press "やりました！" (step 0); the confirmations need the real buttons or the arrow keys
+function pressGagDone() {
+    if (gagStep === 0) pressGagAnswer(true);
 }
 
 // Enter / Space / click: "go to the next screen"
 function advance() {
     if (state === S.TITLE) enterFullscreen(); // go fullscreen when the game starts
-    if (state === S.GAG) pressGagDone(); // the keyboard goes through the same confirmations
+    if (state === S.GAG) pressGagDone(); // Enter only presses "やりました！"; the confirmations need the buttons / arrow keys
     else if (state === S.TITLE) state = S.MODE;
     else if (state === S.MODE) chooseMode(modeIdx);
     else if (state === S.PRACT) startPractice();
@@ -564,6 +582,13 @@ window.addEventListener("keydown", (e) => {
         return;
     }
     keys[e.key.toLowerCase()] = true;
+    if (state === S.GAG && gagStep >= 1 && !e.repeat) {
+        // confirmations: the left / right arrow (or A / D) presses the button on that side
+        const k = e.key.toLowerCase();
+        const yesSide = gagSwap ? 1 : 0;
+        if (k === "a" || k === "arrowleft") pressGagAnswer(yesSide === 0);
+        if (k === "d" || k === "arrowright") pressGagAnswer(yesSide === 1);
+    }
     if (state === S.TITLE && SCORE_ENABLED && !e.repeat) {
         const k = e.key.toLowerCase();
         // A / D / arrows / Tab: switch between the two rankings
@@ -611,7 +636,14 @@ canvas.addEventListener("click", (e) => {
         // pressing the fake RESTART button really restarts the game (a trap)
         if (inButton(p, BTN_FAKE_RESTART)) resetGame();
     } else if (state === S.GAG) {
-        if (inButton(p, BTN_GAG_DONE)) pressGagDone();
+        if (gagStep === 0) {
+            if (inButton(p, BTN_GAG_DONE)) pressGagAnswer(true);
+        } else {
+            const yesSide = gagSwap ? 1 : 0;
+            [0, 1].forEach((side) => {
+                if (inButton(p, gagBtn(side))) pressGagAnswer(side === yesSide);
+            });
+        }
     } else if (state === S.MODE) {
         MODE_MENU.forEach((_, i) => {
             if (inButton(p, modeBtn(i))) chooseMode(i);
@@ -1317,10 +1349,20 @@ function drawOverlay() {
                 drawText("最終確認 " + gagStep + "/" + GAG_CONFIRMS.length, CX, 200, 30, "#fc3");
                 drawText(GAG_CONFIRMS[gagStep - 1], CX, 320, 26, "#fff");
             }
-            ctx.fillStyle = gagLock > 0 ? "#456" : "#6af";
-            ctx.fillRect(b.x, b.y, b.w, b.h);
-            drawText(gagStep === 0 ? "やりました！" : "はい", CX, 460, 22, "#012");
-            drawText("終わったらボタンを押してね", CX, 520, 14, "#889");
+            ctx.fillStyle = gagLock > 0 ? "#456" : "#6af"; // both buttons look the same: you have to read them
+            if (gagStep === 0) {
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                drawText("やりました！", CX, 460, 22, "#012");
+                drawText("終わったらボタンを押してね", CX, 520, 14, "#889");
+            } else {
+                [0, 1].forEach((side) => {
+                    const q = gagBtn(side);
+                    ctx.fillStyle = gagLock > 0 ? "#456" : "#6af"; // drawText changes the fill color, so set it for each button
+                    ctx.fillRect(q.x, q.y, q.w, q.h);
+                    drawText(side === (gagSwap ? 1 : 0) ? "はい" : "いいえ", q.x + q.w / 2, q.y + 40, 22, "#012");
+                });
+                drawText("ボタンを押してね（←→キーでも選べます）", CX, 520, 14, "#889");
+            }
             break;
         }
         case S.FAKE: {
