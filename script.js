@@ -988,6 +988,9 @@ function checkBossDefeated() {
         return;
     }
     formSplits[phase] = Math.round(runFrames * STEP_MS); // time at which this form was defeated
+    // the form is over: the boss attack power from the red / green orbs goes back to normal
+    if (dmgMul !== 1) ringFx(player.x, player.y, "#4df", 30, 20); // a small ring as the cue
+    dmgMul = 1;
     if (practice || phase === formCount() - 1) { // practice: clearing the chosen form is the end
         state = S.WIN;
         finishRun(true);
