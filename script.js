@@ -38,6 +38,9 @@ const modeBtn = (i) => ({ x: MODE_BTN.x, y: MODE_BTN.y + i * (MODE_BTN.h + MODE_
 /* ---- game state ---- */
 let state; // current screen
 let player; // { x, y, hp, inv }
+let fx = []; // particles and rings: { x, y, vx, vy, r, life, max, color, ring?, grow? }
+let shake = 0; // frames of screen shake left
+let bossFlash = 0; // frames the boss is drawn with a white flash (after being hit)
 let boss; // { x, y, hp, max }
 let bullets, beams, shots, orbs, queue, history;
 let gameMode = MODES[0]; // the chosen mode (see MODES in config.js)
@@ -139,6 +142,9 @@ function exitPractice() {
 }
 
 function resetGame() {
+    fx = [];
+    shake = 0;
+    bossFlash = 0;
     practice = false;
     state = S.TITLE;
     swapOrbs = false;
@@ -706,6 +712,55 @@ function distToSegment(px, py, a, b) {
     return Math.hypot(px - a[0] - vx * t, py - a[1] - vy * t);
 }
 
+/* ---- effects ---- */
+// a burst of n small squares flying out of (x, y)
+function burstFx(x, y, color, n, speed, life) {
+    if (!FX_ENABLED) return;
+    for (let i = 0; i < n && fx.length < FX_MAX; i++) {
+        const a = Math.random() * PI * 2;
+        const s = speed * (0.4 + Math.random() * 0.6);
+        fx.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, r: 2 + Math.random() * 2, life, max: life, color });
+    }
+}
+// a ring that grows by `grow` pixels while it fades out
+function ringFx(x, y, color, grow, life) {
+    if (!FX_ENABLED || fx.length >= FX_MAX) return;
+    fx.push({ ring: true, x, y, vx: 0, vy: 0, r: 6, grow, life, max: life, color });
+}
+function updateFx() {
+    let n = 0;
+    for (const p of fx) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.92;
+        p.vy *= 0.92;
+        if (--p.life > 0) fx[n++] = p; // keep the living ones (in place, no new array)
+    }
+    fx.length = n;
+    if (shake > 0) shake--;
+    if (bossFlash > 0) bossFlash--;
+}
+function drawFx() {
+    for (const p of fx) {
+        ctx.globalAlpha = p.life / p.max;
+        if (p.ring) {
+            ctx.strokeStyle = p.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r + (1 - p.life / p.max) * p.grow, 0, PI * 2);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x - p.r / 2, p.y - p.r / 2, p.r, p.r);
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+const orbFx = (x, y, color) => {
+    ringFx(x, y, color, 26, 16);
+    burstFx(x, y, color, 8, 2.5, 16);
+};
+
 /* ---- game logic ---- */
 function takeOrb(id) {
     state = S.PLAY;
@@ -716,7 +771,12 @@ function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
     player.hp -= dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
+    burstFx(player.x, player.y, "#f66", 10, 3, 18);
+    ringFx(player.x, player.y, "#f88", 24, 16);
+    shake = FX_SHAKE_HURT;
     if (player.hp <= 0) {
+        burstFx(player.x, player.y, "#fff", 14, 4, 30); // extra burst when it is the last hit
+        ringFx(player.x, player.y, "#fff", 44, 28);
         state = S.OVER;
         tauntText = pick(TAUNTS).replace("◯", FORM_NAMES[fightForm()]);
         finishRun(false);
@@ -741,6 +801,8 @@ function updateShots() {
         s.y -= PLAYER_SHOT_SPEED;
         if (Math.abs(s.x - boss.x) < BOSS_HIT_HALF_W && Math.abs(s.y - boss.y) < BOSS_HIT_HALF_H) {
             boss.hp -= attackMul; // 1 normally, more with the admin slider
+            bossFlash = 3;
+            burstFx(s.x, s.y, "#9ef", 2, 2.5, 10); // tiny sparks at the hit point
             return false;
         }
         return s.y > -10;
@@ -815,6 +877,7 @@ function updateOrbs() {
     orbs = orbs.filter((o) => {
         o.y += ORB_FALL_SPEED;
         if (Math.hypot(o.x - player.x, o.y - player.y) < ORB_PICK_R) {
+            orbFx(o.x, o.y, ORBS[o.id].color);
             takeOrb(o.id);
             return false;
         }
@@ -842,6 +905,11 @@ function checkMidPick() {
 // Form changes when the boss is defeated
 function checkBossDefeated() {
     if (boss.hp > 0 || state !== S.PLAY) return;
+    // the boss goes down: two rings and a burst, plus a screen shake
+    ringFx(boss.x, boss.y, "#fff", 50, 24);
+    ringFx(boss.x, boss.y, "#fc3", 80, 32);
+    burstFx(boss.x, boss.y, "#fc3", 26, 5, 34);
+    shake = FX_SHAKE_DEFEAT;
     bullets = [];
     beams = [];
     queue = [];
@@ -903,6 +971,7 @@ function updatePlay() {
 function update() {
     if (adminOpen) return; // paused while the admin panel is open
     frame++;
+    updateFx();
     if (keyDebug.t > 0) keyDebug.t--;
     if (invertTimer > 0 && (state === S.PLAY || state === S.SELECT)) invertTimer--;
     switch (state) {
@@ -911,6 +980,7 @@ function update() {
             for (let i = 0; i < SELECT_ORBS.length; i++) {
                 const o = selectOrbPos(i);
                 if (Math.hypot(o.x - player.x, o.y - player.y) < SEL_PICK) {
+                    orbFx(o.x, o.y, ORBS[selectEffect(i)].color);
                     takeOrb(selectEffect(i));
                     break;
                 }
@@ -996,6 +1066,7 @@ function drawSelect() {
 
 function drawField() {
     // boss
+    if (bossFlash > 0) drawCircle(boss.x, boss.y, 30, "rgba(255,255,255,0.35)"); // flash when hit
     ctx.font = "48px serif";
     ctx.textAlign = "center";
     ctx.fillText(state === S.FCLEAR ? "💀" : "👿", boss.x, boss.y + 16);
@@ -1025,6 +1096,7 @@ function drawField() {
     ctx.fillStyle = "#9ef";
     shots.forEach((s) => ctx.fillRect(s.x - 1, s.y - 6, 3, 10));
     if (player.inv % 6 < 3) drawPlayer(dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
+    drawFx();
 
     // HUD
     ctx.fillStyle = "#333";
@@ -1221,7 +1293,13 @@ function drawOverlay() {
 function draw() {
     ctx.clearRect(0, 0, W, H);
     if (state === S.SELECT) drawSelect();
-    else drawField();
+    else if (shake > 0) {
+        ctx.save(); // screen shake: shift only the playfield, not the HUD overlay
+        const a = Math.min(4, shake * 0.6);
+        ctx.translate((Math.random() - 0.5) * 2 * a, (Math.random() - 0.5) * 2 * a);
+        drawField();
+        ctx.restore();
+    } else drawField();
     drawOverlay();
     if (keyDebug.t > 0) drawText(keyDebug.text, W - 6, H - 26, 11, "#8c8", "right");
 }

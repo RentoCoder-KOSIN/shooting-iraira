@@ -37,6 +37,12 @@ const STEP_MS = 16.67; // fixed time step (about 60 updates per second)
 
 // ---- player ----
 const PLAYER_MAX_HP = 8;
+
+// ---- effects (small particles, rings, screen shake). Kept light on purpose. ----
+const FX_ENABLED = true; // false = no effects at all (if the game ever lags)
+const FX_MAX = 150; // maximum number of particles / rings alive at once (new ones are skipped when full)
+const FX_SHAKE_HURT = 8; // screen shake (frames) when the player is hit
+const FX_SHAKE_DEFEAT = 14; // screen shake (frames) when a form is defeated
 const PLAYER_SPEED = 4; // pixels per frame
 const PLAYER_SLOW_SPEED = 2; // while holding Shift
 const PLAYER_HIT_R = 3; // the real hit box is tiny
