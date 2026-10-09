@@ -216,7 +216,7 @@ function createApp(store) {
     app.disable("x-powered-by");
 
     // Only the game files are public (not server.js / package.json / scores.json)
-    const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js"];
+    const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js"];
     app.get("/", (req, res) =>
         res.sendFile(path.join(__dirname, "index.html")),
     );
