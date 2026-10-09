@@ -127,6 +127,23 @@ const MODES = [
         redDmgMul: 2,
         ranked: true, // 通常モードもランキングに登録される（モードごとに別のボード）
     },
+    {
+        // RLモード: 理不尽モードと同じ7形態・同じHP・同じ玉の効果。違うのはボスの中身だけ。
+        // ボスAI(rl.js)が強化学習で「動き」と「何をどの順番で撃つか」を決める。
+        id: "rl",
+        label: "RLモード",
+        desc: "ボスAIが強化学習で成長する（全7形態）",
+        bossHp: BOSS_HP_HARD,
+        formTitles: FORM_TITLES_HARD,
+        detourMaxForm: 5,
+        // sequences: attached at the bottom of this file (only used to build the AI's attack list)
+        color: "#4d4",
+        startSpeedMul: 1.1,
+        bossHealRatio: 0.3,
+        redDmgMul: 3,
+        ranked: false, // the boss is different for every player, so the scores cannot be compared
+        rl: true, // the boss is controlled by RL (rl.js)
+    },
 ];
 
 // ---- yellow orb (sends the boss back to form 1) ----
@@ -994,3 +1011,4 @@ const SEQUENCES_HARD = [
 // The number of lists must equal the number of forms (the length of bossHp); script.js checks it.
 MODES.find((m) => m.id === "hard").sequences = SEQUENCES_HARD;
 MODES.find((m) => m.id === "normal").sequences = SEQUENCES;
+MODES.find((m) => m.id === "rl").sequences = SEQUENCES_HARD; // same 7 forms; RL picks the steps itself

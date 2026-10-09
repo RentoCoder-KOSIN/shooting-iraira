@@ -34,7 +34,7 @@ const BTN_FAKE_RESTART = { x: 170, y: 340, w: 140, h: 60 }; // x follows the scr
 const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x follows the screen center
 // the two buttons of a confirmation: side 0 = left, 1 = right (x follows the screen center)
 const gagBtn = (side) => ({ x: CX - 150 + side * 160, y: 420, w: 140, h: 60 });
-const MODE_BTN = { x: 90, y: 240, w: 300, h: 80, gap: 20 }; // mode select buttons (x follows the screen center)
+const MODE_BTN = { x: 90, y: 215, w: 300, h: 74, gap: 12 }; // mode select buttons (x follows the screen center)
 const modeBtn = (i) => ({ x: MODE_BTN.x, y: MODE_BTN.y + i * (MODE_BTN.h + MODE_BTN.gap), w: MODE_BTN.w, h: MODE_BTN.h });
 
 /* ---- game state ---- */
@@ -86,7 +86,7 @@ const MODE_MENU = [...MODES, { id: "practice", label: "練習モード", desc: "
 const PRACTICE_IDX = MODES.length;
 
 // practice screens (all x positions follow the screen center)
-const practTab = (i) => ({ x: CX - 150 + i * 155, y: 190, w: 145, h: 40 }); // mode tabs
+const practTab = (i) => ({ x: CX - 150 + i * 102, y: 190, w: 96, h: 40 }); // mode tabs (3 modes)
 const practRow = (i) => ({ x: CX - 150, y: 246 + i * 44, w: 300, h: 40 }); // one row per form
 const practBack = () => ({ x: 10, y: 596, w: 90, h: 32 });
 const practRetryBtn = () => ({ x: CX - 150, y: 450, w: 140, h: 46 }); // after game over / practice clear
@@ -102,11 +102,12 @@ function chooseMode(i) {
         return;
     }
     gameMode = MODES[i];
-    boardMode = gameMode.id; // after the run, the title screen shows this mode's ranking
+    if (gameMode.ranked) boardMode = gameMode.id; // after the run, the title screen shows this mode's ranking
     speedMul = gameMode.startSpeedMul;
     // the number of forms depends on the mode: prepare the first form and the split times
     boss.hp = boss.max = bossHpOf(0);
     formSplits = Array(formCount()).fill(null);
+    RL.reset(); // the boss AI starts a fresh run (what it learned stays)
     state = S.PLAY;
 }
 
@@ -129,6 +130,7 @@ function startPractice() {
     player.hp = playerMaxHp;
     // as if the earlier selections had been made: form 2 still has its two selections, later forms
     // have the swapped red / blue orbs (until the last form)
+    RL.reset();
     midPickDone = phase >= 2;
     swapOrbs = phase >= 2 && phase < formCount() - 1;
     state = phase === 1 ? S.SELECT : S.PLAY;
@@ -187,6 +189,7 @@ function resetGame() {
     closeScore();
     fetchScores(); // refresh the ranking shown on the title screen
     boss = { x: CX, y: BOSS_START_Y, hp: bossHpOf(0), max: bossHpOf(0) };
+    RL.reset();
 }
 
 /* ---- config check: gives a clear message when a name has a typo ---- */
@@ -270,6 +273,8 @@ function showAdminView() {
     syncAdminSliders();
     disarmReset();
     adminResetMsg.textContent = "";
+    adminRlMsg.textContent = "";
+    disarmRlReset();
     (adminAuthed ? adminInv : adminPass).focus();
 }
 function openAdmin() {
@@ -358,6 +363,30 @@ adminReset.addEventListener("click", async () => {
     }
     adminReset.disabled = false;
 });
+/* reset what the RLモード boss AI has learned in this browser: press twice (second press within 4 s) */
+const adminRlReset = document.getElementById("admin-rl-reset");
+const adminRlMsg = document.getElementById("admin-rl-msg");
+let rlResetArmed = false;
+let rlResetTimer = 0;
+const RL_RESET_LABEL = "ボスAI(RLモード)の学習をリセット";
+function disarmRlReset() {
+    rlResetArmed = false;
+    clearTimeout(rlResetTimer);
+    adminRlReset.textContent = RL_RESET_LABEL;
+}
+adminRlReset.addEventListener("click", () => {
+    if (!adminAuthed) return;
+    if (!rlResetArmed) {
+        rlResetArmed = true;
+        adminRlReset.textContent = "本当にリセットする？ もう一度押すと実行";
+        adminRlMsg.textContent = "";
+        rlResetTimer = setTimeout(disarmRlReset, 4000);
+        return;
+    }
+    disarmRlReset();
+    RL.clear();
+    adminRlMsg.textContent = "ボスAIの学習をリセットしました";
+});
 adminEl.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closeAdmin));
 
 /* ---- scoreboard (talks to server.js) ---- */
@@ -413,7 +442,8 @@ function finishRun(cleared) {
         rank: 0,
     };
     // the score (see scoring.js); a practice run has no score because it skips the earlier forms
-    if (!practice) {
+    if (gameMode.rl) RL.save(); // keep what the boss AI learned in this run
+    if (!practice && Scoring.MODES[lastRun.mode]) {
         lastRun.parts = Scoring.compute(lastRun.mode, lastRun);
         lastRun.score = lastRun.parts.total;
     }
@@ -834,6 +864,7 @@ function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
     player.hp -= dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
+    if (gameMode.rl) RL.onHit(); // the boss AI learns from it (and takes a short break if it hits too often)
     burstFx(player.x, player.y, "#f66", 10, 3, 18);
     ringFx(player.x, player.y, "#f88", 24, 16);
     shake = FX_SHAKE_HURT;
@@ -1017,14 +1048,16 @@ function updatePlay() {
     history.push({ x: player.x, y: player.y });
     if (history.length > HISTORY_FRAMES) history.shift();
 
-    boss.x = CX + Math.sin(frame / BOSS_MOVE_PERIOD) * BOSS_MOVE_AMP * (W / 480);
+    if (gameMode.rl) RL.moveBoss(); // RLモード: the AI moves the boss
+    else boss.x = CX + Math.sin(frame / BOSS_MOVE_PERIOD) * BOSS_MOVE_AMP * (W / 480);
 
     // From form 2: an orb falls at a fixed interval (fixed order, random position)
     if (phase >= ORB_DROP_FROM_FORM && frame % ORB_DROP_INTERVAL === ORB_DROP_OFFSET)
         spawnOrb(ORB_ORDER_MAIN[((frame / ORB_DROP_INTERVAL) | 0) % ORB_ORDER_MAIN.length]);
 
     updateShots();
-    runPatterns();
+    if (gameMode.rl) RL.update(); // RLモード: the AI chooses the attacks (no fixed order)
+    else runPatterns();
     runQueue();
     updateBullets();
     updateBeams();
@@ -1174,6 +1207,7 @@ function drawField() {
         "第" + FORM_NAMES[fightForm()] + "形態" + (formTitle ? "「" + formTitle + "」" : "") + (detour ? "（戻された）" : ""),
         10, 36, 14, "#aab", "left"
     );
+    if (gameMode.rl) drawText(RL.hud(), 10, 52, 11, "#6d6", "left"); // what the boss AI is doing
     // many hearts would not fit: show "♥×N" above 16
     drawText(player.hp > 16 ? "♥×" + player.hp : "♥".repeat(Math.max(0, player.hp)), 10, H - 10, 16, "#f66", "left");
     if (practice) drawText("練習　Esc: 形態選択へ", CX, H - 10, 11, "#6d6");
@@ -1321,7 +1355,7 @@ function drawOverlay() {
                 ctx.strokeStyle = m.color;
                 ctx.lineWidth = 2;
                 ctx.strokeRect(b.x, b.y, b.w, b.h);
-                drawText(m.label, b.x + b.w / 2, b.y + 26, 17, sel ? "#000" : "#fff");
+                drawText(m.label, b.x + b.w / 2, b.y + 26, 13, sel ? "#000" : "#fff");
             });
             const pm = MODES[practMode];
             pm.bossHp.forEach((hp, i) => {

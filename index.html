@@ -10,6 +10,8 @@
         <link rel="stylesheet" href="style.css" />
         <script src="scoring.js" defer></script>
         <script src="config.js" defer></script>
+        <script src="rl-pretrained.js" defer></script>
+        <script src="rl.js" defer></script>
         <script src="script.js" defer></script>
     </head>
     <body>
@@ -54,6 +56,10 @@
                         全スコアボードをリセット
                     </button>
                     <p id="admin-reset-msg"></p>
+                    <button id="admin-rl-reset" class="danger">
+                        ボスAI(RLモード)の学習をリセット
+                    </button>
+                    <p id="admin-rl-msg"></p>
                     <button class="sub" data-close>閉じる (Esc)</button>
                 </div>
             </div>
