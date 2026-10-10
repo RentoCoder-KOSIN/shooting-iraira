@@ -70,8 +70,6 @@ const PLAYER_SHOT_OFFSET_Y = 10; // and this far above the player
 const HISTORY_FRAMES = 60; // how long the player's position is remembered ("fake" homing aims at the oldest)
 
 // ---- form flow ----
-const MID_PICK_FORM = 1; // the forced 2nd selection happens in this form (0 = form 1) ...
-const MID_PICK_HP_RATIO = 0.6; // ... when the boss HP drops to this ratio
 const FCLEAR_FRAMES = 200; // the fake CLEAR screen lasts this long
 
 // ---- falling orbs ----
@@ -345,10 +343,9 @@ const ORBS = {
     },
 };
 
-// Orbs offered on the selection screen, left to right
+// Orbs offered on the selection screen after every boss defeat, left to right
+// (the colors stay in place, but which effect each color has is shuffled every time)
 const SELECT_ORBS = ["invert", "heal", "gag", "double", "fake"];
-// On the 2nd selection these two orbs swap their abilities (falling orbs are never swapped)
-const SWAP_ON_SECOND_PICK = ["heal", "gag"];
 
 // Orbs that fall from the sky (the position is random, the order is fixed)
 // (12 slots, red "heal" only once, yellow "back" once)

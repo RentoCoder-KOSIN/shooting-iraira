@@ -68,8 +68,7 @@ let detour; // true while fighting the form 1 boss because of the yellow orb
 let detourSave; // { hp, max, patIdx } of the form to return to after the detour
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
 let frame; // global frame counter
-let swapOrbs; // true during the 2nd selection
-let midPickDone; // the 2nd selection has happened
+let selectMap = [...SELECT_ORBS]; // effect of each selection orb (shuffled at every selection)
 let fakeTimer, clearTimer, gagText, tauntText;
 let fakeCount; // purple orbs taken in this run (decides how long the fake game over lasts)
 let invertTimer; // frames left of reversed controls
@@ -147,12 +146,9 @@ function startPractice() {
     boss.hp = boss.max = bossHpOf(phase);
     formSplits = Array(formCount()).fill(null);
     player.hp = playerMaxHp;
-    // as if the earlier selections had been made: form 2 still has its two selections, later forms
-    // have the swapped red / blue orbs (until the last form)
+    // the orb selection only happens after a boss defeat, so practice starts right in the fight
     RL.reset();
-    midPickDone = phase >= 2;
-    swapOrbs = phase >= 2 && phase < formCount() - 1;
-    state = phase === 1 ? S.SELECT : S.PLAY;
+    state = S.PLAY;
 }
 // leave the practice and go back to the form list
 function exitPractice() {
@@ -172,8 +168,7 @@ function resetGame() {
     bossFlash = 0;
     practice = false;
     state = S.TITLE;
-    swapOrbs = false;
-    midPickDone = false;
+    selectMap = [...SELECT_ORBS];
     keyHealUsed = false;
     invertTimer = 0;
     secretKey = pick([...SECRET_KEY_CANDIDATES]);
@@ -218,7 +213,6 @@ function checkConfig() {
     };
     for (const id of [
         ...SELECT_ORBS,
-        ...SWAP_ON_SECOND_PICK,
         ...ORB_ORDER_MAIN,
         ...ORB_ORDER_PATTERN,
     ])
@@ -272,14 +266,27 @@ function selectOrbPos(i) {
         y: H / 2 + (((i / SEL_COLS) | 0) - (rows - 1) / 2) * SEL_GAP,
     };
 }
-// On the 2nd selection the two orbs of SWAP_ON_SECOND_PICK swap abilities
+// The effect of the i-th selection orb (the colors stay in place, the effects are shuffled every time)
 function selectEffect(i) {
-    const id = SELECT_ORBS[i];
-    if (swapOrbs && id === SWAP_ON_SECOND_PICK[0])
-        return SWAP_ON_SECOND_PICK[1];
-    if (swapOrbs && id === SWAP_ON_SECOND_PICK[1])
-        return SWAP_ON_SECOND_PICK[0];
-    return id;
+    return selectMap[i];
+}
+// Open the orb selection: shuffle which effect each color has and put the player at the start
+function enterSelect() {
+    selectMap = [...SELECT_ORBS];
+    for (let i = selectMap.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        [selectMap[i], selectMap[j]] = [selectMap[j], selectMap[i]];
+    }
+    state = S.SELECT;
+    player.x = PLAYER_START.x;
+    player.y = PLAYER_START.y;
+}
+// Taking an orb on the selection screen: the red "heal" effect only heals the player here
+function takeSelectOrb(id) {
+    if (id === "heal") {
+        state = S.PLAY;
+        player.hp = Math.min(playerMaxHp, player.hp + RED_PLAYER_HEAL);
+    } else takeOrb(id);
 }
 
 /* ---- input ---- */
@@ -1183,28 +1190,6 @@ function updateOrbs() {
     });
 }
 
-// Form 2 at 60% boss HP: force the 2nd selection (red and blue swap abilities)
-function checkMidPick() {
-    if (
-        fightForm() === MID_PICK_FORM &&
-        !midPickDone &&
-        boss.hp > 0 &&
-        boss.hp <= boss.max * MID_PICK_HP_RATIO
-    ) {
-        midPickDone = true;
-        swapOrbs = true;
-        state = S.SELECT;
-        bullets = [];
-        beams = [];
-        queue = [];
-        shots = [];
-        player.x = PLAYER_START.x;
-        player.y = PLAYER_START.y;
-        return true;
-    }
-    return false;
-}
-
 // Form changes when the boss is defeated
 function checkBossDefeated() {
     if (boss.hp > 0 || state !== S.PLAY) return;
@@ -1242,11 +1227,7 @@ function checkBossDefeated() {
         phase++;
         formFrames = 0;
         boss.hp = boss.max = bossHpOf(phase);
-        if (phase === 1) {
-            state = S.SELECT;
-            player.x = PLAYER_START.x;
-            player.y = PLAYER_START.y;
-        }
+        enterSelect(); // every boss defeat is followed by the orb selection
     }
 }
 
@@ -1284,7 +1265,6 @@ function updatePlay() {
     updateBeams();
     updateOrbs();
 
-    if (checkMidPick()) return;
     checkBossDefeated();
 }
 
@@ -1303,7 +1283,7 @@ function update() {
                 const o = selectOrbPos(i);
                 if (Math.hypot(o.x - player.x, o.y - player.y) < SEL_PICK) {
                     orbFx(o.x, o.y, ORBS[selectEffect(i)].color);
-                    takeOrb(selectEffect(i));
+                    takeSelectOrb(selectEffect(i));
                     break;
                 }
             }
@@ -1324,9 +1304,8 @@ function update() {
             if (--clearTimer <= 0) {
                 phase = formCount() - 1; // the last form
                 formFrames = 0;
-                swapOrbs = false;
                 boss.hp = boss.max = bossHpOf(phase);
-                state = S.PLAY;
+                enterSelect(); // the selection before the last form too
             }
             break;
     }
@@ -1451,22 +1430,13 @@ function drawPlayer(color) {
 function drawSelect() {
     drawText("好きな玉を選んでください", CX, 240, 24, "#fff");
     drawText("WASDで移動", CX, 400, 16, "#889");
-    if (!swapOrbs) {
-        // legend of the first selection (effects can change later, so it stays vague)
-        drawText(
-            "色玉の効果（途中で変わることがあります）",
-            CX,
-            50,
-            15,
-            "#aab",
-        );
-        SELECT_ORBS.forEach((id, i) => {
-            const o = ORBS[id];
-            const y = 86 + i * 26;
-            drawCircle(CX - 130, y - 5, 7, o.color);
-            drawText(o.name + "玉　" + o.hint, CX - 112, y, 16, "#ddd", "left");
-        });
-    }
+    drawText(
+        "どの色がどの効果かは、毎回ランダムです",
+        CX,
+        50,
+        15,
+        "#aab",
+    );
     SELECT_ORBS.forEach((id, i) => {
         const q = selectOrbPos(i);
         drawCircle(q.x, q.y, SEL_R, ORBS[id].color);

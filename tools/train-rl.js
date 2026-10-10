@@ -139,8 +139,6 @@ const driver = `(function () {
         boss.hp = boss.max = bossHpOf(f);
         player.hp = playerMaxHp;
         dmgMul = 1;
-        midPickDone = true;
-        swapOrbs = false;
         detour = false;
         patIdx = 0; patTime = 0;
         RL.reset();
