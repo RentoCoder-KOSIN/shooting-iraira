@@ -414,6 +414,20 @@ function fmtTime(ms) {
     return Math.floor(t / 600) + ":" + String(Math.floor((t % 600) / 10)).padStart(2, "0") + "." + (t % 10);
 }
 
+// Online count (null = unknown / not connected)
+let online = null;
+function connectPresence() {
+    if (!SCORE_ENABLED || typeof EventSource === "undefined") return;
+    const es = new EventSource(SCORE_API + "/api/presence");
+    es.onmessage = (e) => {
+        online = Number(e.data);
+    };
+    es.onerror = () => {
+        online = null; // EventSource retries by itself
+    };
+}
+connectPresence();
+
 async function fetchScores(force = false, mode = boardMode) {
     if (!SCORE_ENABLED) return;
     const now = Date.now();
@@ -1461,6 +1475,7 @@ function draw() {
         ctx.restore();
     } else drawField();
     drawOverlay();
+    if (online !== null) drawText("👥 " + online, W - 8, 12, 11, "#8cf", "right");
     if (keyDebug.t > 0) drawText(keyDebug.text, W - 6, H - 26, 11, "#8c8", "right");
 }
 

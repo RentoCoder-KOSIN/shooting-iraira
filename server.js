@@ -11,6 +11,8 @@
  *      hp     = HP left when the run ended (only a CLEAR keeps HP, otherwise 0)
  *      The SCORE is computed here with scoring.js (the client value is never trusted).
  *
+ *    GET  /api/presence -> SSE stream: the number of open connections (online count)
+ *
  *    POST /api/scores/reset -> { ok: true, scores: [] }   body: { password }
  *      admin only: deletes ALL records. The password is checked here on the server
  *      (env ADMIN_PASSWORD; falls back to the same default as config.js).
@@ -223,6 +225,32 @@ function createApp(store) {
     for (const f of FILES)
         app.get("/" + f, (req, res) => res.sendFile(path.join(__dirname, f)));
     app.get("/favicon.ico", (req, res) => res.status(204).end());
+
+    // Online count: every open SSE connection = one browser tab currently playing
+    const clients = new Set();
+    const MAX_CLIENTS = 500; // protect memory from connection spam
+    const broadcast = () => {
+        for (const c of clients) c.write("data: " + clients.size + "\n\n");
+    };
+    app.get("/api/presence", (req, res) => {
+        if (clients.size >= MAX_CLIENTS) return res.status(503).end();
+        res.set({
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no", // do not buffer behind a proxy
+        });
+        res.flushHeaders();
+        clients.add(res);
+        broadcast();
+        req.on("close", () => {
+            clients.delete(res);
+            broadcast();
+        });
+    });
+    // Heartbeat: keeps idle connections alive through the proxy
+    setInterval(() => {
+        for (const c of clients) c.write(": ping\n\n");
+    }, 25000).unref();
 
     app.get("/api/scores", async (req, res) => {
         try {

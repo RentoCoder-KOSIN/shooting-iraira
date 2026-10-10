@@ -1,5 +1,6 @@
 services:
   - type: web
     name: irritating-game
-    runtime: static
-    staticPublishPath: .
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
