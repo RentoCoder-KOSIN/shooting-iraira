@@ -738,6 +738,9 @@ let habitSide = 0; // side (-1 left / +1 right) at the last check, 0 = no check 
 let habitSame = 0; // checks in a row on the same side
 let habitFlip = 0; // side changes in a row
 let camperN = 0; // checks in a row where the player barely moved
+let habitYSide = 0; // same as habitSide, for the top / bottom halves (pattern "habitY")
+let habitYSame = 0;
+let habitYFlip = 0;
 
 // "habit": the boss watches which half of the screen you stand in. These rules are FIXED:
 //   - same half at 2 checks in a row  -> that half gets sealed by vertical beams
@@ -764,6 +767,17 @@ function beamAlt(name, t) {
         s.plays++;
     }
     return s.alt;
+}
+
+// Horizontal version of sealSide: horizontal beams over the top (side = -1) or bottom (side = +1) half.
+// Same spacing / width / warning as sealSide, and it also swaps its positions every time (A, B, A, B ...):
+//   A: 40 / 120 / 200 / 280 px from the middle line, B: 80 / 160 / 240 / 320 px (the last one is at the screen edge).
+let sealYAlt = false;
+function sealHalfY(side) {
+    const start = sealYAlt ? 80 : 40;
+    for (let d = start; d < H / 2 + (sealYAlt ? 1 : 0); d += 80)
+        beam({ x: 0, y: H / 2 + side * d, angle: 0, warn: 60, dur: 40, width: 36 });
+    sealYAlt = !sealYAlt;
 }
 
 const PATTERNS = {
@@ -1049,6 +1063,33 @@ const PATTERNS = {
         },
     },
 
+    // 行動記録・横 (form 7): the same rules as "habit", but it watches the top / bottom half and seals with horizontal beams
+    habitY: {
+        duration: 360,
+        run(t) {
+            if (t === 0) {
+                habitYSide = 0;
+                habitYSame = 0;
+                habitYFlip = 0;
+            }
+            if (t % 60 === 20 && t < 300) bossShot("normal", aimFromBoss(), 3);
+            if (t % 80 !== 40 || t >= 320) return;
+            const side = player.y < H / 2 ? -1 : 1;
+            if (habitYSide !== 0) {
+                if (side === habitYSide) {
+                    habitYSame++;
+                    habitYFlip = 0;
+                } else {
+                    habitYFlip++;
+                    habitYSame = 0;
+                }
+            }
+            habitYSide = side;
+            if (habitYSame >= 1) sealHalfY(side); // stayed in one half
+            else if (habitYFlip >= 2) sealHalfY(-side); // keeps switching halves: seal where you go next
+        },
+    },
+
     // 同じ場所禁止: stay within 40 px of the spot you were at 1 second ago for 1.5 seconds -> aimed fans
     camper: {
         duration: 300,
@@ -1110,6 +1151,7 @@ const SEQUENCES_HARD = [
         ["rep3", "freezeRing", "rage"],
         ["wallR"], // no rage here: the wall must stay dodgeable
         ["habit", "burst", "rage"],
+        ["habitY", "burst", "rage"], // the horizontal version of habit
         ["surround", "swirl", "rage"],
         ["pressure", "camper", "freezeRing", "rage"],
     ],
