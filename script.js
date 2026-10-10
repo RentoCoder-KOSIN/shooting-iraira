@@ -68,7 +68,8 @@ let detour; // true while fighting the form 1 boss because of the yellow orb
 let detourSave; // { hp, max, patIdx } of the form to return to after the detour
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
 let frame; // global frame counter
-let selectMap = [...SELECT_ORBS]; // effect of each selection orb (shuffled at every selection)
+let selectMap = [...SELECT_ORBS]; // effect of each selection orb (shuffled at every selection after form 1)
+let selectRandom = false; // false: the selection after form 1 (original behavior), true: the selections after form 2 and later
 let fakeTimer, clearTimer, gagText, tauntText;
 let fakeCount; // purple orbs taken in this run (decides how long the fake game over lasts)
 let invertTimer; // frames left of reversed controls
@@ -146,9 +147,10 @@ function startPractice() {
     boss.hp = boss.max = bossHpOf(phase);
     formSplits = Array(formCount()).fill(null);
     player.hp = playerMaxHp;
-    // the orb selection only happens after a boss defeat, so practice starts right in the fight
+    // the orb selection only happens after a boss defeat: practicing form 2 starts with the original selection
     RL.reset();
-    state = S.PLAY;
+    if (phase === 1) enterSelect(false);
+    else state = S.PLAY;
 }
 // leave the practice and go back to the form list
 function exitPractice() {
@@ -169,6 +171,7 @@ function resetGame() {
     practice = false;
     state = S.TITLE;
     selectMap = [...SELECT_ORBS];
+    selectRandom = false;
     keyHealUsed = false;
     invertTimer = 0;
     secretKey = pick([...SECRET_KEY_CANDIDATES]);
@@ -270,20 +273,24 @@ function selectOrbPos(i) {
 function selectEffect(i) {
     return selectMap[i];
 }
-// Open the orb selection: shuffle which effect each color has and put the player at the start
-function enterSelect() {
+// Open the orb selection and put the player at the start.
+// random = false: the selection after form 1 (every color keeps its own effect, as before)
+// random = true: after form 2 and later (which effect each color has is shuffled every time)
+function enterSelect(random = true) {
+    selectRandom = random;
     selectMap = [...SELECT_ORBS];
-    for (let i = selectMap.length - 1; i > 0; i--) {
-        const j = (Math.random() * (i + 1)) | 0;
-        [selectMap[i], selectMap[j]] = [selectMap[j], selectMap[i]];
-    }
+    if (random)
+        for (let i = selectMap.length - 1; i > 0; i--) {
+            const j = (Math.random() * (i + 1)) | 0;
+            [selectMap[i], selectMap[j]] = [selectMap[j], selectMap[i]];
+        }
     state = S.SELECT;
     player.x = PLAYER_START.x;
     player.y = PLAYER_START.y;
 }
-// Taking an orb on the selection screen: the red "heal" effect only heals the player here
+// Taking an orb on the selection screen: from form 2 on, the "heal" effect only heals the player
 function takeSelectOrb(id) {
-    if (id === "heal") {
+    if (selectRandom && id === "heal") {
         state = S.PLAY;
         player.hp = Math.min(playerMaxHp, player.hp + RED_PLAYER_HEAL);
     } else takeOrb(id);
@@ -1227,7 +1234,7 @@ function checkBossDefeated() {
         phase++;
         formFrames = 0;
         boss.hp = boss.max = bossHpOf(phase);
-        enterSelect(); // every boss defeat is followed by the orb selection
+        enterSelect(phase !== 1); // every boss defeat is followed by the orb selection (form 1's is the original one)
     }
 }
 
@@ -1430,13 +1437,29 @@ function drawPlayer(color) {
 function drawSelect() {
     drawText("好きな玉を選んでください", CX, 240, 24, "#fff");
     drawText("WASDで移動", CX, 400, 16, "#889");
-    drawText(
-        "どの色がどの効果かは、毎回ランダムです",
-        CX,
-        50,
-        15,
-        "#aab",
-    );
+    if (!selectRandom) {
+        // legend of the selection after form 1 (effects can change later, so it stays vague)
+        drawText(
+            "色玉の効果（途中で変わることがあります）",
+            CX,
+            50,
+            15,
+            "#aab",
+        );
+        SELECT_ORBS.forEach((id, i) => {
+            const o = ORBS[id];
+            const y = 86 + i * 26;
+            drawCircle(CX - 130, y - 5, 7, o.color);
+            drawText(o.name + "玉　" + o.hint, CX - 112, y, 16, "#ddd", "left");
+        });
+    } else
+        drawText(
+            "どの色がどの効果かは、毎回ランダムです",
+            CX,
+            50,
+            15,
+            "#aab",
+        );
     SELECT_ORBS.forEach((id, i) => {
         const q = selectOrbPos(i);
         drawCircle(q.x, q.y, SEL_R, ORBS[id].color);
