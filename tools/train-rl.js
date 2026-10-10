@@ -75,6 +75,7 @@ load("config.js");
 if ((mode === "eval" || mode === "base") && fs.existsSync(path.join(ROOT, "rl-pretrained.js"))) load("rl-pretrained.js"); // eval: start from the shipped state
 else vm.runInContext("const RL_PRETRAINED = undefined;", ctx);
 load("rl.js");
+load("net.js");
 load("script.js");
 
 /* ---- the driver runs INSIDE the game's scope (it can read the game's variables) ---- */

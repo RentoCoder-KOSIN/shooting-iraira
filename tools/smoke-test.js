@@ -29,6 +29,7 @@ function dummy() {
 const listeners = {};
 const saved = {};
 const sandbox = {
+    sanitizeSnap: require("../realtime.js").sanitizeSnap, // server-side validation of spectator snapshots
     console, performance: { now: () => 0 }, requestAnimationFrame: () => 0, setTimeout: () => 0, clearTimeout: () => 0,
     fetch: () => Promise.reject(new Error("offline")), innerWidth: 480, innerHeight: 640, devicePixelRatio: 1,
     addEventListener(t, f) { (listeners[t] = listeners[t] || []).push(f); },
@@ -38,7 +39,7 @@ const sandbox = {
 sandbox.window = sandbox;
 sandbox.self = sandbox;
 const ctx = vm.createContext(sandbox);
-for (const f of ["scoring.js", "config.js", "rl-pretrained.js", "rl.js", "script.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
+for (const f of ["scoring.js", "config.js", "rl-pretrained.js", "rl.js", "net.js", "script.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
 
 const t = vm.runInContext(`(function () {
     const log = [];
@@ -71,6 +72,20 @@ const t = vm.runInContext(`(function () {
     ok("boss moved around (" + xs.size + " different x cells)", xs.size >= 4);
     ok("bullets were fired (max " + maxBullets + " on screen)", maxBullets > 5);
     ok("HUD text exists: " + RL.hud(), RL.hud().startsWith("AI:"));
+
+    // spectating: the snapshot of a real run passes the server validation unchanged, and both screens draw
+    {
+        const raw = JSON.parse(JSON.stringify(buildSnap()));
+        const clean = sanitizeSnap(raw);
+        const nb = (g) => g.reduce((n, x) => n + x[3].length, 0);
+        ok("snapshot is valid (" + nb(raw.g) / 2 + " bullets, " + raw.e.length + " beams)", !!clean && nb(clean.g) === nb(raw.g) && clean.e.length === raw.e.length);
+        ok("snapshot is small (" + JSON.stringify(raw).length + " bytes)", JSON.stringify(raw).length < 30000);
+        ok("garbage snapshots are rejected", [null, 1, {}, { w: "x" }, { ...raw, m: "evil" }, { ...raw, p: [NaN, 0, 0, 0, 0] }].every((x) => sanitizeSnap(x) === null));
+        ok("bad colours / points are dropped", sanitizeSnap({ ...raw, g: [["red;alert(1)", 3, 0, [1, 2]], ["#fff", 3, 0, [1]]] }).g.length === 0);
+        Net.snap = clean; state = S.WATCH; drawAll();
+        Net.list = [{ id: 2, mode: "hard", form: 6, hp: 5 }]; state = S.WLIST; drawAll();
+        Net.snap = null; state = S.PLAY;
+    }
 
     // death -> OVER screen, no ranking prompt, no crash
     player.hp = 1; player.inv = 0; dmgMul = 1; hurtPlayer();

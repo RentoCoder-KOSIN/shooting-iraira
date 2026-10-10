@@ -27,6 +27,8 @@ const S = {
     FCLEAR: "fclear",
     OVER: "over",
     WIN: "win",
+    WLIST: "wlist", // spectating: list of players who are playing now
+    WATCH: "watch", // spectating: watching one of them
 };
 
 const PLAYER_START = { x: 240, y: 580 }; // x follows the screen center (see layout())
@@ -35,6 +37,10 @@ const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x follows the screen 
 // the two buttons of a confirmation: side 0 = left, 1 = right (x follows the screen center)
 const gagBtn = (side) => ({ x: CX - 150 + side * 160, y: 420, w: 140, h: 60 });
 const MODE_BTN = { x: 90, y: 215, w: 300, h: 74, gap: 12 }; // mode select buttons (x follows the screen center)
+// spectating buttons (x follows the screen center)
+const watchBtn = () => ({ x: CX - 70, y: 588, w: 140, h: 30 }); // on the title screen
+const watchRow = (i) => ({ x: CX - 150, y: 120 + i * 52, w: 300, h: 44 }); // one playing person
+const watchBack = () => ({ x: 20, y: H - 46, w: 110, h: 30 });
 const modeBtn = (i) => ({ x: MODE_BTN.x, y: MODE_BTN.y + i * (MODE_BTN.h + MODE_BTN.gap), w: MODE_BTN.w, h: MODE_BTN.h });
 
 /* ---- game state ---- */
@@ -414,20 +420,6 @@ function fmtTime(ms) {
     return Math.floor(t / 600) + ":" + String(Math.floor((t % 600) / 10)).padStart(2, "0") + "." + (t % 10);
 }
 
-// Online count (null = unknown / not connected)
-let online = null;
-function connectPresence() {
-    if (!SCORE_ENABLED || typeof EventSource === "undefined") return;
-    const es = new EventSource(SCORE_API + "/api/presence");
-    es.onmessage = (e) => {
-        online = Number(e.data);
-    };
-    es.onerror = () => {
-        online = null; // EventSource retries by itself
-    };
-}
-connectPresence();
-
 async function fetchScores(force = false, mode = boardMode) {
     if (!SCORE_ENABLED) return;
     const now = Date.now();
@@ -633,6 +625,9 @@ window.addEventListener("keydown", (e) => {
         if (k === "a" || k === "arrowleft") pressGagAnswer(yesSide === 0);
         if (k === "d" || k === "arrowright") pressGagAnswer(yesSide === 1);
     }
+    if (state === S.TITLE && !e.repeat && e.key.toLowerCase() === "v" && Net.available() && Net.online !== null) openWatchList();
+    if (state === S.WLIST && e.key === "Escape") state = S.TITLE;
+    if (state === S.WATCH && e.key === "Escape") openWatchList();
     if (state === S.TITLE && SCORE_ENABLED && !e.repeat) {
         const k = e.key.toLowerCase();
         // A / D / arrows / Tab: switch between the two rankings
@@ -709,6 +704,15 @@ canvas.addEventListener("click", (e) => {
     } else if (practice && (state === S.OVER || state === S.WIN)) {
         if (inButton(p, practRetryBtn())) startPractice();
         else if (inButton(p, practMenuBtn())) exitPractice();
+    } else if (state === S.WLIST) {
+        Net.list.slice(0, 8).forEach((r, i) => {
+            if (inButton(p, watchRow(i))) startWatching(r.id);
+        });
+        if (inButton(p, watchBack())) state = S.TITLE;
+    } else if (state === S.WATCH) {
+        if (inButton(p, watchBack())) openWatchList();
+    } else if (state === S.TITLE && Net.available() && Net.online !== null && inButton(p, watchBtn())) {
+        openWatchList();
     } else if (state === S.TITLE && SCORE_ENABLED && RANKED_MODES.some((_, i) => inButton(p, boardTab(i)))) {
         RANKED_MODES.forEach((m, i) => {
             if (inButton(p, boardTab(i))) setBoard(m.id); // switch the ranking (does not start the game)
@@ -1084,6 +1088,7 @@ function updatePlay() {
 function update() {
     if (adminOpen) return; // paused while the admin panel is open
     frame++;
+    pumpSpectate();
     updateFx();
     if (keyDebug.t > 0) keyDebug.t--;
     if (invertTimer > 0 && (state === S.PLAY || state === S.SELECT)) invertTimer--;
@@ -1121,6 +1126,56 @@ function update() {
             }
             break;
     }
+}
+
+/* ---- live broadcast for spectators (see net.js / realtime.js) ---- */
+const SNAP_EVERY = 3; // send the screen every 3 frames (20 times per second)
+const isBroadcasting = () => !practice && (state === S.PLAY || state === S.GAG || state === S.FAKE || state === S.FCLEAR);
+
+// The whole screen of this player in a compact form (bullets are grouped by look: [color, r, faint, [x, y, x, y ...]])
+function buildSnap() {
+    const groups = new Map();
+    for (const b of bullets) {
+        const key = b.color + "|" + b.r + "|" + (b.delay > 0 ? 1 : 0);
+        let g = groups.get(key);
+        if (!g) groups.set(key, (g = [b.color, b.r, b.delay > 0 ? 1 : 0, []]));
+        if (g[3].length < 2000) g[3].push(Math.round(b.x), Math.round(b.y));
+    }
+    const pts = [];
+    shots.forEach((q) => pts.length < 200 && pts.push(Math.round(q.x), Math.round(q.y)));
+    return {
+        w: W,
+        m: gameMode.id,
+        f: fightForm(),
+        d: detour ? 1 : 0,
+        k: state === S.FCLEAR ? 1 : 0,
+        p: [Math.round(player.x), Math.round(player.y), player.inv % 6 < 3 ? 1 : 0, Math.max(0, player.hp), dmgMul >= 3 ? 2 : dmgMul > 1 ? 1 : 0],
+        b: [Math.round(boss.x), Math.round(boss.y), Math.max(0, Math.round(boss.hp)), Math.round(boss.max)],
+        g: [...groups.values()],
+        e: beams.map((b) => [b.w, b.age > b.warn ? 1 : 0, beamPath(b).flat().map(Math.round)]),
+        sh: pts,
+        o: orbs.map((o) => [Math.round(o.x), Math.round(o.y), o.id]),
+    };
+}
+
+// called every frame from update()
+function pumpSpectate() {
+    if (isBroadcasting()) {
+        if (frame % SNAP_EVERY === 0) Net.sendSnap(buildSnap());
+    } else Net.stopSending();
+    if (state === S.WLIST && frame % 120 === 0) Net.requestList(); // keep the list fresh
+    // the watched player stopped: show the message for a moment, then back to the list
+    if (state === S.WATCH && Net.endedAt && Date.now() - Net.endedAt > 2500) openWatchList();
+}
+
+function openWatchList() {
+    Net.unwatch();
+    Net.requestList();
+    state = S.WLIST;
+}
+function startWatching(id) {
+    Net.watch(id);
+    state = S.WATCH;
 }
 
 /* ---- drawing ---- */
@@ -1341,8 +1396,98 @@ function drawPracticeButtons() {
     });
 }
 
+const MODE_LABEL = (id) => (MODES.find((m) => m.id === id) || { label: id }).label;
+
+function drawWatchList() {
+    fillScreen("#10101c");
+    drawText("観戦", CX, 70, 30, "#6af");
+    drawText("いまプレイ中の人を選んでください", CX, 100, 14, "#aab");
+    const rows = Net.list.slice(0, 8);
+    rows.forEach((r, i) => {
+        const b = watchRow(i);
+        ctx.fillStyle = "#2a2a3c";
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = "#6af";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        drawText("プレイヤー#" + r.id, b.x + 12, b.y + 27, 16, "#fff", "left");
+        const f = FORM_NAMES[r.form] ? "第" + FORM_NAMES[r.form] + "形態" : "";
+        drawText(MODE_LABEL(r.mode) + " " + f + " ♥" + r.hp, b.x + b.w - 12, b.y + 27, 12, "#aab", "right");
+    });
+    if (!rows.length) drawText(Net.listAt ? "いまプレイ中の人はいません" : "読み込み中…", CX, 200, 16, "#889");
+    const bk = watchBack();
+    ctx.fillStyle = "#334";
+    ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
+    drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");
+}
+
+// the watched player's screen, redrawn from the latest snapshot sent by the server (already validated there)
+function drawWatch() {
+    fillScreen("#10101c");
+    const s = Net.snap;
+    const bk = watchBack();
+    if (!s) {
+        drawText(Net.endedAt ? "プレイが終了しました" : "接続中…", CX, H / 2, 20, "#889");
+    } else {
+        // the watched screen may have another width: fit it in, centered
+        const k = Math.min(1, W / s.w);
+        ctx.save();
+        ctx.translate(CX - (s.w * k) / 2, (H - H * k) / 2);
+        ctx.scale(k, k);
+        ctx.font = "48px serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fff";
+        ctx.fillText(s.k ? "💀" : "👿", s.b[0], s.b[1] + 16);
+        for (const [bw, active, pts] of s.e) {
+            ctx.beginPath();
+            for (let i = 0; i < pts.length; i += 2) (i ? ctx.lineTo(pts[i], pts[i + 1]) : ctx.moveTo(pts[0], pts[1]));
+            ctx.strokeStyle = active ? "#fff" : "rgba(255,80,80,.5)";
+            ctx.lineWidth = active ? bw : 2;
+            ctx.stroke();
+        }
+        for (const [color, r, faint, pts] of s.g) {
+            ctx.globalAlpha = faint ? 0.3 : 1;
+            for (let i = 0; i < pts.length; i += 2) drawCircle(pts[i], pts[i + 1], r, color);
+            ctx.globalAlpha = 1;
+        }
+        for (const [x, y, id] of s.o) {
+            const c = ORBS[id] ? ORBS[id].color : "#fff";
+            drawCircle(x, y, 12, c);
+            drawCircle(x, y, 17, c + "8", false);
+        }
+        ctx.fillStyle = "#9ef";
+        for (let i = 0; i < s.sh.length; i += 2) ctx.fillRect(s.sh[i] - 1, s.sh[i + 1] - 6, 3, 10);
+        if (s.p[2]) {
+            const col = s.p[4] === 2 ? "#f55" : s.p[4] === 1 ? "#3c3" : "#4df";
+            drawCircle(s.p[0], s.p[1], 9, col, false);
+            drawCircle(s.p[0], s.p[1], PLAYER_HIT_R, "#fff");
+        }
+        ctx.restore();
+        // HUD (boss HP, form, hearts)
+        ctx.fillStyle = "#333";
+        ctx.fillRect(10, 24, W - 20, 8);
+        ctx.fillStyle = "#e44";
+        ctx.fillRect(10, 24, ((W - 20) * s.b[2]) / s.b[3], 8);
+        const m = MODES.find((x) => x.id === s.m);
+        const title = m && m.formTitles && m.formTitles[s.f];
+        drawText("第" + (FORM_NAMES[s.f] || "?") + "形態" + (title ? "「" + title + "」" : "") + (s.d ? "（戻された）" : ""), 10, 52, 14, "#aab", "left");
+        drawText(s.p[3] > 16 ? "♥×" + s.p[3] : "♥".repeat(s.p[3]), 10, H - 54, 16, "#f66", "left");
+        if (Net.endedAt) drawText("プレイが終了しました", CX, H / 2, 22, "#fc3");
+    }
+    drawText("観戦中" + (Net.watching !== null ? " プレイヤー#" + Net.watching : ""), CX, H - 10, 12, "#6af");
+    ctx.fillStyle = "#334";
+    ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
+    drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");
+}
+
 function drawOverlay() {
     switch (state) {
+        case S.WLIST:
+            drawWatchList();
+            break;
+        case S.WATCH:
+            drawWatch();
+            break;
         case S.TITLE:
             fillScreen("#10101c");
             ctx.font = "72px serif";
@@ -1355,6 +1500,15 @@ function drawOverlay() {
             drawText("移動: WASD・矢印キー / スマホは画面をドラッグ　攻撃: 自動", CX, 560, 14, "#889");
             drawScoreboard();
             drawBoardTabs();
+            if (Net.available() && Net.online !== null) {
+                const wb = watchBtn();
+                ctx.fillStyle = "#234";
+                ctx.fillRect(wb.x, wb.y, wb.w, wb.h);
+                ctx.strokeStyle = "#6af";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(wb.x, wb.y, wb.w, wb.h);
+                drawText("👀 観戦する (V)", wb.x + wb.w / 2, wb.y + 21, 13, "#8cf");
+            }
             break;
         case S.MODE:
             fillScreen("#10101c");
@@ -1475,7 +1629,7 @@ function draw() {
         ctx.restore();
     } else drawField();
     drawOverlay();
-    if (online !== null) drawText("👥 " + online, W - 8, 12, 11, "#8cf", "right");
+    if (Net.online !== null) drawText("👥 " + Net.online, W - 8, 12, 11, "#8cf", "right");
     if (keyDebug.t > 0) drawText(keyDebug.text, W - 6, H - 26, 11, "#8c8", "right");
 }
 
