@@ -13,6 +13,7 @@
  *    node tools/train-rl.js base  [rounds]      比較用: 理不尽モード(固定順)のボスで同じ測定
  *  rounds = 7形態を何周するか (1周 = 各形態 40 秒)
  *  環境変数 BOT=weak  で人間っぽい弱いBot(見える範囲が狭い・たまに操作が止まる)に変えられる
+ *  環境変数 BOT=mix   で強いBotと弱いBotを1周ごとに交代させる (train はこれが推奨)
  * ========================================================================== */
 const fs = require("fs");
 const path = require("path");
@@ -79,9 +80,10 @@ load("net.js");
 load("script.js");
 
 /* ---- the driver runs INSIDE the game's scope (it can read the game's variables) ---- */
+const MIX = process.env.BOT === "mix"; // train against a strong and a weak bot, one after the other
 const WEAK = process.env.BOT === "weak";
 const driver = `(function () {
-    const WEAK = ${WEAK};
+    let WEAK = ${WEAK};
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const modeOf = (id) => MODES.find((m) => m.id === id);
 
@@ -167,7 +169,7 @@ const driver = `(function () {
         RL.save();
         return r;
     }
-    return { episode, modeOf };
+    return { episode, modeOf, setWeak(w) { WEAK = w; } };
 })()`;
 const sim = vm.runInContext(driver, ctx);
 
@@ -184,6 +186,7 @@ const per = names.map(() => ({ hits: 0, frames: 0, deaths: 0, maxBurst: 0, bulle
 const t0 = Date.now();
 const rw0 = reward0();
 for (let round = 0; round < rounds; round++) {
+    if (MIX) sim.setWeak(round % 2 === 1);
     for (let f = 0; f < 7; f++) {
         const r = sim.episode(target, f, FRAMES);
         const p = per[f];
@@ -195,7 +198,7 @@ for (let round = 0; round < rounds; round++) {
         console.log("round " + (round + 1) + "/" + rounds + "  被弾/分 " + hpm + "  (" + ((Date.now() - t0) / 1000).toFixed(0) + "s)");
     }
 }
-console.log("\n=== " + mode + " (" + (mode === "base" ? "理不尽モード・固定順" : mode === "fresh" ? "RLモード・学習前" : "RLモード") + ", " + rounds + "周, " + (WEAK ? "弱いBot" : "Bot") + "操作) ===");
+console.log("\n=== " + mode + " (" + (mode === "base" ? "理不尽モード・固定順" : mode === "fresh" ? "RLモード・学習前" : "RLモード") + ", " + rounds + "周, " + (WEAK ? "弱いBot" : MIX ? "強弱ミックスBot" : "Bot") + "操作) ===");
 console.log("形態  被弾/分  死亡/分  最大連続被弾(5秒内)  平均弾数");
 per.forEach((p, i) => {
     const min = p.frames / 3600;

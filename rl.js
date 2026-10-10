@@ -10,7 +10,8 @@
  *    micro : 短い攻撃 (狙い扇, リング, 狙撃, 雨, 追尾 ...)  ← この AI 専用に作った技
  *    macro : 理不尽モードの攻撃パターン (config.js の SEQUENCES_HARD にある1ステップ分)
  *            ← 作者が「避けられる」と確認済みの技を、固定順ではなく AI が選んで出す
- *  AI が選べる動き (MOVES): ゆらゆら / プレイヤーを追う / 反対側へ逃げる / ショットをよける
+ *  AI が選べる動き (MOVES): ゆらゆら / プレイヤーを追う / 反対側へ逃げる / ショットをよける / 動きを読んで先回り
+ *  プレイヤーの動きを読む技 (lead / pincer / trace / net): 直近の移動から「逃げる先」を予測して、そこへ撃つ
  *
  *  学習: ε-greedy + Q学習 (SMDP版)。報酬 = かすり + 被弾 + プレイヤーを動かした量 - ボスが受けたダメージ
  *  学習結果は localStorage に保存されて、次に遊ぶときも続きから成長する。
@@ -26,40 +27,43 @@
  *    8. ボスは速く動きすぎない (BOSS_MAX_V)。12秒ダメージを受けなければ疲れて動きが止まる
  * ========================================================================== */
 const RL = (() => {
-    const VERSION = 1;
+    const VERSION = 2;
     const STORE_KEY = "irritating-game:rl-v" + VERSION;
     const SAVE_EVERY = 900; // frames between automatic saves
 
     /* ---- learning ---- */
     const GAMMA = 0.9; // discount per second
-    const EPS_START = 0.3; // exploration at the beginning of a form ...
-    const EPS_MIN = 0.06; // ... shrinking to this as the AI gains experience
+    const EPS_START = 0.35; // exploration at the beginning of a form ...
+    const EPS_MIN = 0.04; // ... shrinking to this as the AI gains experience
     const EPS_DECAY = 1200; // decisions
-    const R_GRAZE = 0.12; // a bullet passes close to you
-    const R_HIT = 1.0; // you are hit (reduced when you are being hit a lot, see GUARD 7)
+    const R_GRAZE = 0.15; // a bullet passes close to you
+    const R_HIT = 1.5; // you are hit (reduced when you are being hit a lot, see GUARD 7)
     const R_MOVE = 0.002; // per pixel the player moved (makes the player keep moving)
-    const R_BOSS_DMG = 0.015; // per HP the boss loses (teaches the boss to dodge your shots)
+    const R_BOSS_DMG = 0.008; // per HP the boss loses (teaches the boss to dodge your shots)
     const R_OVERLOAD = 0.2; // per second above 90% of the bullet cap
-    const HIT_TARGET = 3; // hits per 10 s at which hitting stops being rewarded
+    const HIT_TARGET = 5; // hits per 10 s at which hitting stops being rewarded
     const GRAZE_R = 14; // extra radius (px) that counts as "close"
+    const EXPLORE_BONUS = 0.25; // while learning: untried actions look a bit better (so every attack gets tried)
+    const BLEND_N = 3; // the coarse table counts as this many samples when the exact state is new
 
     /* ---- GUARD: fairness ---- */
-    const SAFE_R = 70; // nothing appears this close to the player
-    const TELEGRAPH = 10; // frames a new bullet waits (faint) before it starts moving
-    const BUDGET = [60, 70, 80, 90, 100, 110, 120]; // max bullets on screen per form
-    const MACRO_MAX_BULLETS = 40; // a macro attack only starts when the screen is this empty
-    const CALM_HITS = 3; // this many hits ...
+    const SAFE_R = 56; // nothing appears this close to the player
+    const TELEGRAPH = 8; // frames a new bullet waits (faint) before it starts moving
+    const BUDGET = [80, 95, 110, 125, 140, 155, 170]; // max bullets on screen per form
+    const MACRO_MAX_BULLETS = 75; // a macro attack only starts when the screen is this empty
+    const CALM_HITS = 4; // this many hits ...
     const CALM_WINDOW = 300; // ... within this many frames ...
-    const CALM_FRAMES = 150; // ... stop all attacks for this long
+    const CALM_FRAMES = 110; // ... stop all attacks for this long
     const MERCY_HP = 2; // effective HP (hp / damage multiplier) at or below this: no big attacks
-    const BOSS_MAX_V = 2.4; // px per frame
+    const BOSS_MAX_V = 3.2; // px per frame
     const TIRED_AFTER = 720; // no damage for this long -> the boss gets tired
     const TIRED_FRAMES = 240; // ... and just sways for this long
     const MOVE_DECIDE_FRAMES = 45;
     const BOSS_MARGIN = 50;
 
-    const MOVES = ["ゆらゆら", "追う", "逃げる", "よける"];
-    const N_STATE = 135; // states per form: 5 (x) * 3 (y) * 3 (movement) * 3 (bullets)
+    const MOVES = ["ゆらゆら", "追う", "逃げる", "よける", "先回り"];
+    const N_STATE = 405; // exact states per form: 5 (x) * 3 (y) * 3 (x movement) * 3 (y movement) * 3 (bullets)
+    const N_COARSE = 45; // coarse states per form: 5 (x) * 3 (x movement) * 3 (bullets)
 
     /* ---- helpers ---- */
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -76,6 +80,26 @@ const RL = (() => {
         for (let i = 0; i < n; i++) fire(type, boss.x, bossY(), offset + (i * 2 * PI) / n, v, opts);
     }
     const aimNow = () => Math.atan2(player.y - bossY(), player.x - boss.x);
+
+    // where the player is heading: average velocity over the last ~12 frames, and a straight-line guess t frames ahead
+    function vel() {
+        const n = Math.min(pxHist.length, 12);
+        if (n < 4) return { vx: 0, vy: 0 };
+        return {
+            vx: (player.x - pxHist[pxHist.length - n]) / (n - 1),
+            vy: (player.y - pyHist[pyHist.length - n]) / (n - 1),
+        };
+    }
+    function predict(t) {
+        const v = vel();
+        return { x: clamp(player.x + v.vx * t, 12, W - 12), y: clamp(player.y + v.vy * t, 12, H - 12) };
+    }
+    // one bullet fired from the boss that reaches the predicted spot after about `t` frames
+    function leadShot(t, delay) {
+        const P = predict(t + delay);
+        const d = Math.hypot(P.x - boss.x, P.y - bossY());
+        fire("normal", boss.x, bossY(), Math.atan2(P.y - bossY(), P.x - boss.x), clamp(d / t, 1.8, 4.6), { delay });
+    }
 
     /* ---- micro attacks (made for the AI) ----
      *  count : how many bullets it adds (for the bullet cap)   rest : frames of rest afterwards
@@ -141,6 +165,45 @@ const RL = (() => {
                 for (let i = 0; i < 8; i++) fire("normal", boss.x, bossY(), PI / 2 + rand(-0.9, 0.9), rand(2, 3.2));
             },
         },
+        // ---- attacks that read the player's movement ----
+        {
+            id: "lead", name: "予測狙撃", count: 4, rest: 48, heavy: false, unlock: 1,
+            run() {
+                for (let k = 0; k < 4; k++) later(k * 10, () => leadShot(26 + k * 8, 8));
+            },
+        },
+        {
+            id: "pincer", name: "挟み撃ち", count: 3, rest: 60, heavy: false, unlock: 2,
+            run() {
+                const P = predict(44);
+                fire("normal", -8, P.y, 0, 3.4, { delay: 14 });
+                fire("normal", W + 8, P.y, PI, 3.4, { delay: 14 });
+                later(24, () => fire("normal", predict(40).x, -8, PI / 2, 3.4, { delay: 14 }));
+            },
+        },
+        {
+            id: "trace", name: "軌跡撃ち", count: 5, rest: 56, heavy: false, unlock: 3,
+            run() {
+                // all at once, with different speeds: they line up along the path the player is walking
+                for (let k = 0; k < 5; k++) leadShot(26 + k * 14, 6);
+            },
+        },
+        {
+            id: "net", name: "包囲網", count: 12, rest: 70, heavy: true, unlock: 3,
+            run() {
+                // a closing ring around the spot the player is heading to; two slots are always left open
+                const P = predict(36);
+                const gap = rand(0, 2 * PI);
+                const n = 14;
+                for (let i = 2; i < n; i++) {
+                    const a = gap + (i * 2 * PI) / n;
+                    const x = P.x + Math.cos(a) * 150;
+                    const y = P.y + Math.sin(a) * 150;
+                    if (x < -4 || x > W + 4 || y < -4 || y > H + 4) continue;
+                    fire("normal", x, y, a + PI, 2.6, { delay: 16 });
+                }
+            },
+        },
     ];
 
     /* ---- macro attacks: the steps of the 理不尽 mode attack lists (author-checked) ---- */
@@ -171,7 +234,8 @@ const RL = (() => {
 
     /* ---- the learned tables (sparse: only visited states exist) ---- */
     const table = new Map(); // stateKey -> { q: Float32Array(A), n: Uint16Array(A) }
-    const mtable = new Map(); // stateKey -> { q: Float32Array(4), n: Uint16Array(4) }
+    const ctable = new Map(); // coarse key -> same as table (fewer states, learns faster; mixed in while the exact state is new)
+    const mtable = new Map(); // coarse key -> { q: Float32Array(MOVES), n: Uint16Array(MOVES) }
     let stats = { decisions: 0, byForm: Array(7).fill(0), episodes: 0 };
     const entry = (t, key, size) => {
         let e = t.get(key);
@@ -198,6 +262,7 @@ const RL = (() => {
     let lastPx = 0,
         lastPy = 0;
     let pxHist = [];
+    let pyHist = [];
     let label = "";
     let lastEps = 0;
     let saveAt = 0;
@@ -220,6 +285,7 @@ const RL = (() => {
         lastPx = player.x;
         lastPy = player.y;
         pxHist = [];
+        pyHist = [];
         tired = 0;
         label = "";
     }
@@ -247,8 +313,11 @@ const RL = (() => {
         const old = pxHist.length ? pxHist[0] : player.x;
         const mv = player.x - old;
         const pv = mv > 24 ? 2 : mv < -24 ? 0 : 1;
-        const bl = bullets.length < 20 ? 0 : bullets.length < 50 ? 1 : 2;
-        return form * N_STATE + ((px * 3 + py) * 3 + pv) * 3 + bl;
+        const oldY = pyHist.length ? pyHist[0] : player.y;
+        const mvy = player.y - oldY;
+        const ph = mvy > 24 ? 2 : mvy < -24 ? 0 : 1;
+        const bl = bullets.length < 30 ? 0 : bullets.length < 70 ? 1 : 2;
+        return { fine: form * N_STATE + (((px * 3 + py) * 3 + pv) * 3 + ph) * 3 + bl, coarse: form * N_COARSE + (px * 3 + pv) * 3 + bl };
     }
     const eps = () => (epsFixed !== null ? epsFixed : Math.max(EPS_MIN, EPS_START * Math.exp(-stats.byForm[form] / EPS_DECAY)));
     const learning = () => learnOn && (typeof usedAdmin === "undefined" || !usedAdmin); // admin runs teach nothing
@@ -278,7 +347,11 @@ const RL = (() => {
         lastBossHp = boss.hp;
         if (bullets.length > BUDGET[form] * 0.9) add(-R_OVERLOAD / 60);
         pxHist.push(player.x);
-        if (pxHist.length > 20) pxHist.shift();
+        pyHist.push(player.y);
+        if (pxHist.length > 20) {
+            pxHist.shift();
+            pyHist.shift();
+        }
     }
 
     // called by hurtPlayer() in script.js
@@ -316,7 +389,13 @@ const RL = (() => {
         return mask;
     }
 
-    function pickAction(e, mask) {
+    // value of action i: the exact-state estimate, mixed with the coarse one while it has few samples
+    function qv(e, ce, i) {
+        const w = e.n[i] / (e.n[i] + BLEND_N);
+        return w * e.q[i] + (1 - w) * ce.q[i];
+    }
+
+    function pickAction(e, ce, mask) {
         const ok = [];
         for (let i = 0; i < A; i++) if (mask[i]) ok.push(i);
         if (Math.random() < eps()) {
@@ -326,13 +405,15 @@ const RL = (() => {
             const pool = micro.length && (!mac.length || Math.random() < 0.5) ? micro : mac.length ? mac : ok;
             return pool[(Math.random() * pool.length) | 0];
         }
+        const bonus = learning() && epsFixed === null;
         let best = -1e9,
             list = [];
         for (const i of ok) {
-            if (e.q[i] > best + 1e-9) {
-                best = e.q[i];
+            const v = qv(e, ce, i) + (bonus ? EXPLORE_BONUS / Math.sqrt(1 + e.n[i]) : 0);
+            if (v > best + 1e-9) {
+                best = v;
                 list = [i];
-            } else if (Math.abs(e.q[i] - best) <= 1e-9) list.push(i);
+            } else if (Math.abs(v - best) <= 1e-9) list.push(i);
         }
         return list[(Math.random() * list.length) | 0];
     }
@@ -347,15 +428,18 @@ const RL = (() => {
     function decide() {
         syncGov();
         const key = stateKey();
-        const e = entry(table, key, A);
+        const e = entry(table, key.fine, A);
+        const ce = entry(ctable, key.coarse, A);
         const mask = allowedMask();
         if (pending && learning()) {
             let maxNext = -1e9;
-            for (let i = 0; i < A; i++) if (mask[i] && e.q[i] > maxNext) maxNext = e.q[i];
+            for (let i = 0; i < A; i++) if (mask[i]) maxNext = Math.max(maxNext, qv(e, ce, i));
             const frames = frame - pending.start;
-            learnStep(entry(table, pending.key, A), pending.a, acc / Math.max(1, frames / 60), frames, maxNext);
+            const r = acc / Math.max(1, frames / 60);
+            learnStep(entry(table, pending.key.fine, A), pending.a, r, frames, maxNext);
+            learnStep(entry(ctable, pending.key.coarse, A), pending.a, r, frames, maxNext);
         }
-        const a = pickAction(e, mask);
+        const a = pickAction(e, ce, mask);
         pending = { key, a, start: frame };
         acc = 0;
         const act = ACTIONS[a];
@@ -368,16 +452,16 @@ const RL = (() => {
         label = act.name;
         if (act.kind === "micro") {
             act.run();
-            cool = Math.round(act.rest * (1 - 0.05 * form));
+            cool = Math.round(act.rest * 0.75 * (1 - 0.06 * form));
         } else {
             macro = { a, t: 0 };
-            cd[a] = frame + act.dur + 420; // GUARD 5: a big attack is not repeated soon
+            cd[a] = frame + act.dur + 300; // GUARD 5: a big attack is not repeated soon
         }
     }
 
     function syncGov() {
         const mercy = player.hp / (typeof dmgMul === "number" ? dmgMul : 1) <= MERCY_HP;
-        govSpeed = (1 + 0.02 * form) * (mercy ? 0.9 : 1);
+        govSpeed = (1 + 0.035 * form) * (mercy ? 0.9 : 1);
     }
 
     /* ---- running a macro attack exactly like runPatterns() does ---- */
@@ -394,13 +478,13 @@ const RL = (() => {
         });
         if (!waiting && macro.t >= act.dur) {
             macro = null;
-            cool = 45;
+            cool = 30;
         }
     }
 
     /* ---- the movement decision ---- */
     function decideMove() {
-        const key = stateKey();
+        const key = stateKey().coarse;
         const e = entry(mtable, key, MOVES.length);
         if (mpending && learning()) {
             let maxNext = -1e9;
@@ -447,7 +531,7 @@ const RL = (() => {
             else if (moveMode === 3) {
                 const d = dodgeTarget();
                 if (d !== null) target = d;
-            }
+            } else if (moveMode === 4) target = predict(40).x; // go where the player is heading
         }
         target = clamp(target, BOSS_MARGIN, W - BOSS_MARGIN);
         boss.x += clamp((target - boss.x) * 0.08, -BOSS_MAX_V, BOSS_MAX_V); // GUARD 8
@@ -492,7 +576,7 @@ const RL = (() => {
             }
             return out;
         };
-        return { v: VERSION, sig: SIG, stats, t: dump(table), m: dump(mtable) };
+        return { v: VERSION, sig: SIG, stats, t: dump(table), c: dump(ctable), m: dump(mtable) };
     }
     function importData(d) {
         if (!d || d.v !== VERSION || d.sig !== SIG) return false;
@@ -507,6 +591,7 @@ const RL = (() => {
             }
         };
         fill(table, d.t, A);
+        fill(ctable, d.c, A);
         fill(mtable, d.m, MOVES.length);
         stats = { decisions: 0, byForm: Array(7).fill(0), episodes: 0, ...d.stats };
         return true;
@@ -522,6 +607,7 @@ const RL = (() => {
             localStorage.removeItem(STORE_KEY);
         } catch (_) {}
         table.clear();
+        ctable.clear();
         mtable.clear();
         stats = { decisions: 0, byForm: Array(7).fill(0), episodes: 0 };
         if (typeof RL_PRETRAINED !== "undefined") importData(RL_PRETRAINED);
