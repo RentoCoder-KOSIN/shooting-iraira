@@ -1666,7 +1666,17 @@ function layout() {
     }
 }
 window.addEventListener("resize", layout);
-document.addEventListener("fullscreenchange", layout);
+// Leaving fullscreen: the browser reports the new window size a moment later, so lay out again a few times
+// (otherwise the canvas can keep the fullscreen size and part of the screen is cut off).
+const relayout = () => {
+    layout();
+    requestAnimationFrame(layout);
+    setTimeout(layout, 150);
+    setTimeout(layout, 500);
+};
+document.addEventListener("fullscreenchange", relayout);
+document.addEventListener("webkitfullscreenchange", relayout);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", layout); // mobile: address bar shows / hides
 
 /* ---- main loop (fixed time step, about 60 updates per second) ---- */
 checkConfig();
