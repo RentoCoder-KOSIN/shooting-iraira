@@ -288,9 +288,10 @@ function enterSelect(random = true) {
     player.x = PLAYER_START.x;
     player.y = PLAYER_START.y;
 }
-// Taking an orb on the selection screen: from form 2 on, the "heal" effect only heals the player
+// Taking an orb on the selection screen (every selection): the "heal" effect only heals the player.
+// Falling orbs do not use this, so a falling red orb keeps its full effect (player heal + boss heal + boss power up)
 function takeSelectOrb(id) {
-    if (selectRandom && id === "heal") {
+    if (id === "heal") {
         state = S.PLAY;
         player.hp = Math.min(playerMaxHp, player.hp + RED_PLAYER_HEAL);
     } else takeOrb(id);
