@@ -593,19 +593,21 @@ const WALL_ROW_SPACING = 68; // wall pattern: distance between rows in pixels (a
 //   2. when the lowest flowing row reaches WALL_STOP_Y, ALL rows stop at the same moment (WALL_STOP_FRAMES = 0.6 s)
 //   3. then ALL rows drop straight down together at WALL_DASH_V, keeping their shape and spacing
 //   4. bullets that left the screen are deleted at once (updateBullets), and so are their rows
-// Why the dash stays dodgeable: rows pass the player WALL_ROW_SPACING / WALL_DASH_V = 7.6 frames apart.
-// The gap moves sideways by at most WALL_GAP_AMP_DASH * WALL_GAP_SLOPE_DASH = 25.6 px from row to row, which is 3.4 px/frame
-// (the player moves 4 px/frame), and the gap is 80 px wide. The stopped wall stands still for 0.6 s, so the
-// player can see the gaps and line up before the dash starts.
+// Why the dash stays dodgeable: the stopped wall stands still for 0.6 s, so the player can see the gaps and
+// line up before the dash starts, and the gap is 80 px wide (the numbers are explained at WALL_GAP_AMP_DASH).
 const WALL_MIN_ROW_GAP = 56; // rows never come closer than this (a bit less than WALL_ROW_SPACING = 68)
 const WALL_STOP_Y = [330, 430]; // the wall stops when its lowest row reaches a y inside this range (random each time)
 const WALL_STOP_FRAMES = 36; // how long the wall stands still (0.6 s)
-const WALL_DASH_V = 9; // px per frame while dropping (the flowing wall is slower, see WALL_MAX_V)
-// The gap of this wall swings in a tighter, more visible curve than the normal wall, but the sideways shift
-// from row to row stays about the same: WALL_GAP_AMP_DASH * WALL_GAP_SLOPE_DASH = 80 * 0.32 = 25.6 px at most
-// (3.4 px/frame at the dash speed, the player moves 4). Bigger numbers = a stronger curve, but harder.
-const WALL_GAP_AMP_DASH = 80; // how far the gap swings to the left / right (px, at 480 px width)
-const WALL_GAP_SLOPE_DASH = 0.32; // how fast the gap bends from row to row
+const WALL_DASH_V = 7; // px per frame while dropping (the flowing wall is slower, see WALL_MAX_V)
+// The gap of this wall bends strongly: it shifts sideways by up to WALL_GAP_AMP_DASH * WALL_GAP_SLOPE_DASH
+// = 100 * 0.45 = 45 px from row to row (about 33 degrees). Rows pass the player 68 / 7 = 9.7 frames apart, so on
+// paper that needs 4.6 px/frame (the player moves 4), but the gap is 80 px wide, which gives the player slack.
+// Measured with tools/smoke-test.js: a player who only follows the gaps at 3 px/frame (75% of the top speed)
+// is never hit. Going further breaks it (at a drop speed of 7): 50 px/row hits a 3 px/frame follower, 55 px/row
+// even hits a 3.4 px/frame one.
+// A faster drop (WALL_DASH_V) needs a smaller shift: 9 px/frame with 36 px/row is the same level of safety.
+const WALL_GAP_AMP_DASH = 100; // how far the gap swings to the left / right (px, at 480 px width)
+const WALL_GAP_SLOPE_DASH = 0.45; // how fast the gap bends from row to row
 // whole-wall tempo events (used by 通常モード only, see below)
 const WALL_EVENTS = [
     { kind: "stop", weight: 1, len: [25, 55] }, // the row stops for `len` frames, then bursts forward
