@@ -594,14 +594,18 @@ const WALL_ROW_SPACING = 68; // wall pattern: distance between rows in pixels (a
 //   3. then ALL rows drop straight down together at WALL_DASH_V, keeping their shape and spacing
 //   4. bullets that left the screen are deleted at once (updateBullets), and so are their rows
 // Why the dash stays dodgeable: rows pass the player WALL_ROW_SPACING / WALL_DASH_V = 7.6 frames apart.
-// The gap moves sideways by at most WALL_GAP_SLOPE_DASH * 150 = 24 px from row to row, which is 3.2 px/frame
+// The gap moves sideways by at most WALL_GAP_AMP_DASH * WALL_GAP_SLOPE_DASH = 25.6 px from row to row, which is 3.4 px/frame
 // (the player moves 4 px/frame), and the gap is 80 px wide. The stopped wall stands still for 0.6 s, so the
 // player can see the gaps and line up before the dash starts.
 const WALL_MIN_ROW_GAP = 56; // rows never come closer than this (a bit less than WALL_ROW_SPACING = 68)
 const WALL_STOP_Y = [330, 430]; // the wall stops when its lowest row reaches a y inside this range (random each time)
 const WALL_STOP_FRAMES = 36; // how long the wall stands still (0.6 s)
 const WALL_DASH_V = 9; // px per frame while dropping (the flowing wall is slower, see WALL_MAX_V)
-const WALL_GAP_SLOPE_DASH = 0.16; // gap swing of this wall (smaller than WALL_GAP_SLOPE: the dash is fast)
+// The gap of this wall swings in a tighter, more visible curve than the normal wall, but the sideways shift
+// from row to row stays about the same: WALL_GAP_AMP_DASH * WALL_GAP_SLOPE_DASH = 80 * 0.32 = 25.6 px at most
+// (3.4 px/frame at the dash speed, the player moves 4). Bigger numbers = a stronger curve, but harder.
+const WALL_GAP_AMP_DASH = 80; // how far the gap swings to the left / right (px, at 480 px width)
+const WALL_GAP_SLOPE_DASH = 0.32; // how fast the gap bends from row to row
 // whole-wall tempo events (used by 通常モード only, see below)
 const WALL_EVENTS = [
     { kind: "stop", weight: 1, len: [25, 55] }, // the row stops for `len` frames, then bursts forward
@@ -715,9 +719,11 @@ function wallRun(t, dir) {
     if (newest && newest.y < -8 + WALL_ROW_SPACING) return; // the next row is fired when the last one has moved far enough
     // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
     const slope = gameMode.rowWave ? WALL_GAP_SLOPE_DASH : WALL_GAP_SLOPE;
-    const gap = CX + dir * Math.sin(wallRows * slope * (480 / W)) * 150 * (W / 480);
+    const amp = gameMode.rowWave ? WALL_GAP_AMP_DASH : 150;
+    const gap = CX + dir * Math.sin(wallRows * slope * (480 / W)) * amp * (W / 480);
     const shift = wallRows % 2 ? 12 : 0;
     const row = newWallRow();
+    row.gap = gap; // where the gap of this row is (only used by tools/smoke-test.js)
     wallList.push(row);
     for (let x = 10 + shift; x < W; x += 24) {
         if (Math.abs(x - gap) > GAP_HALF) shoot("wall", x, row.y, PI / 2, WALL_SPEED, { row });
