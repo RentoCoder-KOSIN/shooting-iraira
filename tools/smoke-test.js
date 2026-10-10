@@ -82,6 +82,12 @@ const t = vm.runInContext(`(function () {
         ok("snapshot is small (" + JSON.stringify(raw).length + " bytes)", JSON.stringify(raw).length < 30000);
         ok("garbage snapshots are rejected", [null, 1, {}, { w: "x" }, { ...raw, m: "evil" }, { ...raw, p: [NaN, 0, 0, 0, 0] }].every((x) => sanitizeSnap(x) === null));
         ok("bad colours / points are dropped", sanitizeSnap({ ...raw, g: [["red;alert(1)", 3, 0, [1, 2]], ["#fff", 3, 0, [1]]] }).g.length === 0);
+        // choosing a colour orb: the broadcast must go on (otherwise the spectators are kicked out) and show the choices
+        const keep = state; state = S.SELECT;
+        const sel = sanitizeSnap(JSON.parse(JSON.stringify(buildSnap())));
+        ok("selection screen is still broadcast", isBroadcasting() && sel && sel.l === 1 && sel.o.length === SELECT_ORBS.length);
+        Net.snap = sel; state = S.WATCH; drawAll();
+        state = keep;
         Net.snap = clean; state = S.WATCH; drawAll();
         Net.list = [{ id: 2, mode: "hard", form: 6, hp: 5 }]; state = S.WLIST; drawAll();
         Net.snap = null; state = S.PLAY;

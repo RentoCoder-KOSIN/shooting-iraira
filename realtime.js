@@ -79,7 +79,7 @@ function sanitizeSnap(s) {
         const y = int(orb[1], -300, 3000);
         if (x !== null && y !== null) o.push([x, y, orb[2]]);
     }
-    return { w, m: s.m, f, d: s.d ? 1 : 0, k: s.k ? 1 : 0, p: player, b: boss, g, e, sh, o };
+    return { w, m: s.m, f, d: s.d ? 1 : 0, k: s.k ? 1 : 0, l: s.l ? 1 : 0, p: player, b: boss, g, e, sh, o };
 }
 
 /* ---------- hub ---------- */
