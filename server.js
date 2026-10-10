@@ -13,6 +13,9 @@
  *
  *    WS   /ws -> online count + live spectating (see realtime.js)
  *
+ *    GET  /api/rl  /  POST /api/rl  /  POST /api/rl/reset -> the boss AI that all players teach together
+ *      (RLモード; see rlmodel.js). The model is kept in the same database (table kv) or in rl-model.json.
+ *
  *    POST /api/scores/reset -> { ok: true, scores: [] }   body: { password }
  *      admin only: deletes ALL records. The password is checked here on the server
  *      (env ADMIN_PASSWORD; falls back to the same default as config.js).
@@ -36,11 +39,13 @@ const PORT = process.env.PORT || 3000;
 const TOP_N = 10;
 const NAME_MAX = 12;
 const Scoring = require("./scoring.js"); // the score formula (shared with the browser)
+const { createRlModel } = require("./rlmodel.js"); // the boss AI everybody teaches
 const MODE_IDS = Object.keys(Scoring.MODES); // "hard", "normal"
 const MAX_MS = 6 * 60 * 60 * 1000; // no run is longer than 6 hours
 const MIN_CLEAR_MS = { hard: 60 * 1000, normal: 30 * 1000 }; // a real CLEAR cannot be faster than this
 const POST_LIMIT = { max: 6, windowMs: 60 * 1000 }; // per IP
 const RESET_LIMIT = { max: 5, windowMs: 60 * 1000 }; // per IP (admin password guessing)
+const RL_LIMIT = { max: 12, windowMs: 60 * 1000 }; // per IP: uploads of what the boss learned
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "mint"; // keep in sync with config.js unless the env var is set
 
 /* ---------- validation ---------- */
@@ -121,6 +126,13 @@ async function createPgStore(url) {
     await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS hp INTEGER");
     await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS score INTEGER");
     await pool.query("CREATE INDEX IF NOT EXISTS scores_mode_score ON scores (mode, score DESC)");
+    // small key/value table (the shared boss AI of the RLモード lives here)
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS kv (
+            k          TEXT PRIMARY KEY,
+            v          JSONB NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`);
     const toRow = (r) => ({
         mode: r.mode,
         name: r.name,
@@ -153,11 +165,21 @@ async function createPgStore(url) {
         async clear() {
             await pool.query("TRUNCATE TABLE scores RESTART IDENTITY");
         },
+        async getKV(k) {
+            const r = await pool.query("SELECT v FROM kv WHERE k = $1", [k]);
+            return r.rows[0] ? r.rows[0].v : null;
+        },
+        async setKV(k, v) {
+            await pool.query(
+                "INSERT INTO kv (k, v, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = now()",
+                [k, JSON.stringify(v)],
+            );
+        },
     };
 }
 
 /* ---------- storage: JSON file (local testing) ---------- */
-function createFileStore(file) {
+function createFileStore(file, kvFile) {
     let rows = [];
     try {
         rows = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -179,6 +201,21 @@ function createFileStore(file) {
         async clear() {
             rows = [];
             fs.writeFileSync(file, "[]");
+        },
+        async getKV(k) {
+            try {
+                return JSON.parse(fs.readFileSync(kvFile, "utf8"))[k] ?? null;
+            } catch (_) {
+                return null;
+            }
+        },
+        async setKV(k, v) {
+            let all = {};
+            try {
+                all = JSON.parse(fs.readFileSync(kvFile, "utf8"));
+            } catch (_) {}
+            all[k] = v;
+            fs.writeFileSync(kvFile, JSON.stringify(all));
         },
     };
 }
@@ -212,7 +249,7 @@ function safeEqual(a, b) {
 }
 
 /* ---------- app ---------- */
-function createApp(store) {
+function createApp(store, rl) {
     const app = express();
     app.set("trust proxy", 1); // behind Render's proxy: req.ip is the real client
     app.disable("x-powered-by");
@@ -259,6 +296,35 @@ function createApp(store) {
         },
     );
 
+    // the shared boss AI (RLモード): download it / teach it / admin reset
+    if (rl) {
+        app.get("/api/rl", (req, res) => {
+            if (!rl.ready()) return res.status(404).json({ error: "shared learning is off" });
+            const { json, etag } = rl.snapshot();
+            res.set({ "Cache-Control": "no-cache", ETag: etag });
+            if (req.get("If-None-Match") === etag) return res.status(304).end();
+            res.type("application/json").send(json);
+        });
+        app.post("/api/rl", express.json({ limit: "96kb" }), (req, res) => {
+            if (rateLimited(req.ip, RL_LIMIT, "rl")) return res.status(429).json({ error: "too many uploads" });
+            const r = rl.merge(req.body);
+            if (!r.ok) return res.status(r.status).json({ error: r.error });
+            res.set("Cache-Control", "no-store");
+            res.json({ ok: true });
+        });
+        app.post("/api/rl/reset", express.json({ limit: "1kb" }), (req, res) => {
+            if (rateLimited(req.ip, RESET_LIMIT, "reset"))
+                return res.status(429).json({ error: "試行が多すぎます。少し待ってください" });
+            const given = req.body && req.body.password;
+            if (typeof given !== "string" || !safeEqual(given, ADMIN_PASSWORD))
+                return res.status(403).json({ error: "パスワードが違います" });
+            if (!rl.reset()) return res.status(404).json({ error: "shared learning is off" });
+            console.warn("[rl] the shared boss was reset by admin (" + req.ip + ")");
+            res.set("Cache-Control", "no-store");
+            res.json({ ok: true });
+        });
+    }
+
     // admin: delete every record
     app.post(
         "/api/scores/reset",
@@ -299,14 +365,22 @@ async function main() {
     const url = process.env.DATABASE_URL;
     const store = url
         ? await createPgStore(url)
-        : createFileStore(path.join(__dirname, "scores.json"));
+        : createFileStore(path.join(__dirname, "scores.json"), path.join(__dirname, "rl-model.json"));
     if (!url)
         console.warn(
             "[scores] DATABASE_URL is not set: using scores.json (the data is lost when Render restarts)",
         );
-    const server = createApp(store).listen(PORT, () =>
+    const rl = createRlModel(store);
+    await rl.init();
+    const server = createApp(store, rl).listen(PORT, () =>
         console.log("listening on " + PORT + " (storage: " + store.kind + ")"),
     );
+    // Render stops the old instance with SIGTERM on every deploy: save the shared boss first
+    process.on("SIGTERM", () => {
+        rl.flush()
+            .catch((err) => console.warn("[rl] save failed:", err.message))
+            .finally(() => process.exit(0));
+    });
     require("./realtime.js").attach(server); // WebSocket: online count + spectating
 }
 
@@ -316,4 +390,4 @@ if (require.main === module) {
         process.exit(1);
     });
 }
-module.exports = { parseScore, createApp, createFileStore, createPgStore };
+module.exports = { parseScore, createApp, createFileStore, createPgStore, createRlModel };

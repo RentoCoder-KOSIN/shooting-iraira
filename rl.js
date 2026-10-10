@@ -15,6 +15,10 @@
  *
  *  学習: ε-greedy + Q学習 (SMDP版)。報酬 = かすり + 被弾 + プレイヤーを動かした量 - ボスが受けたダメージ
  *  学習結果は localStorage に保存されて、次に遊ぶときも続きから成長する。
+ *  さらに、サーバー(server.js + rlmodel.js)があれば「全員で育てる共通のボスAI」になる:
+ *    ・各プレイヤーの対戦で得た学習(状態・技ごとの目標値の合計と回数)を、一定間隔でサーバーへ送る (upload)
+ *    ・サーバーは全員分を1つの表にまとめ、遊び始めるときと一定間隔でそれを受け取る (sync)
+ *    ・管理者操作(usedAdmin)の対戦は何も教えない / 送られる値はサーバー側でも範囲チェックされる
  *
  *  「無理ゲーにしない」ための安全装置 (学習結果に関係なくいつも効く / GUARD と書いた部分):
  *    1. 攻撃は同時に1つだけ (技を重ねない)。重ねるのは作者が確認した組み合わせだけ
@@ -30,6 +34,10 @@ const RL = (() => {
     const VERSION = 2;
     const STORE_KEY = "irritating-game:rl-v" + VERSION;
     const SAVE_EVERY = 900; // frames between automatic saves
+    const UPLOAD_MIN_MS = 20000; // what the boss learned is sent to the server at most this often ...
+    const SYNC_MIN_MS = 120000; // ... and the shared boss is fetched at most this often
+    const UPLOAD_MAX_ENTRIES = 700; // entries per upload (the server accepts 800)
+    const OUTBOX_MAX = 20000; // samples kept while the server cannot be reached
 
     /* ---- learning ---- */
     const GAMMA = 0.9; // discount per second
@@ -290,6 +298,7 @@ const RL = (() => {
         label = "";
     }
     function reset() {
+        sync(false); // a new run: take what everybody taught the boss in the meantime
         form = -1;
         calm = 0;
         hitFrames = [];
@@ -418,8 +427,9 @@ const RL = (() => {
         return list[(Math.random() * list.length) | 0];
     }
 
-    function learnStep(e, a, r, frames, maxNext) {
+    function learnStep(tag, key, e, a, r, frames, maxNext) {
         const target = r + Math.pow(GAMMA, Math.max(1, frames / 60)) * maxNext;
+        note(tag, key, a, target); // the same lesson also goes to the shared boss
         const alpha = Math.max(0.05, 1 / (2 + e.n[a]));
         e.q[a] += alpha * (target - e.q[a]);
         if (e.n[a] < 65535) e.n[a]++;
@@ -436,8 +446,8 @@ const RL = (() => {
             for (let i = 0; i < A; i++) if (mask[i]) maxNext = Math.max(maxNext, qv(e, ce, i));
             const frames = frame - pending.start;
             const r = acc / Math.max(1, frames / 60);
-            learnStep(entry(table, pending.key.fine, A), pending.a, r, frames, maxNext);
-            learnStep(entry(ctable, pending.key.coarse, A), pending.a, r, frames, maxNext);
+            learnStep("t", pending.key.fine, entry(table, pending.key.fine, A), pending.a, r, frames, maxNext);
+            learnStep("c", pending.key.coarse, entry(ctable, pending.key.coarse, A), pending.a, r, frames, maxNext);
         }
         const a = pickAction(e, ce, mask);
         pending = { key, a, start: frame };
@@ -447,6 +457,7 @@ const RL = (() => {
         if (recent.length > 6) recent.shift();
         stats.decisions++;
         stats.byForm[form]++;
+        outDec[form]++;
         usage[act.id] = (usage[act.id] || 0) + 1;
         lastEps = eps();
         label = act.name;
@@ -490,7 +501,7 @@ const RL = (() => {
             let maxNext = -1e9;
             for (let i = 0; i < MOVES.length; i++) maxNext = Math.max(maxNext, e.q[i]);
             const frames = frame - mpending.start;
-            learnStep(entry(mtable, mpending.key, MOVES.length), mpending.a, macc / Math.max(1, frames / 60), frames, maxNext);
+            learnStep("m", mpending.key, entry(mtable, mpending.key, MOVES.length), mpending.a, macc / Math.max(1, frames / 60), frames, maxNext);
         }
         let a;
         if (Math.random() < eps()) a = (Math.random() * MOVES.length) | 0;
@@ -564,6 +575,95 @@ const RL = (() => {
         decide();
     }
 
+    /* ---- shared learning: everybody teaches the same boss (server side: rlmodel.js) ---- */
+    let outbox = { t: {}, c: {}, m: {} }; // tag -> "stateKey:action" -> [sum of targets, count] since the last upload
+    let outCount = 0;
+    let outDec = Array(7).fill(0); // decisions per form since the last upload
+    let lastUpload = 0;
+    let lastSync = 0;
+    let syncing = false;
+    let uploading = false;
+    let etag = "";
+    const sharedOn = () =>
+        typeof fetch === "function" && typeof location !== "undefined" && typeof SCORE_ENABLED !== "undefined" && SCORE_ENABLED && typeof SCORE_API !== "undefined"; // (no location = a test tool, not a browser)
+
+    function note(tag, key, a, target) {
+        if (!Number.isFinite(target) || outCount >= OUTBOX_MAX) return;
+        const k = key + ":" + a;
+        const e = outbox[tag][k] || (outbox[tag][k] = [0, 0]);
+        e[0] += target;
+        e[1]++;
+        outCount++;
+    }
+    // put entries back after a failed upload (so nothing is lost while the server sleeps)
+    function restore(part, dec) {
+        for (const tag of ["t", "c", "m"])
+            for (const [k, [sum, n]] of Object.entries(part[tag])) {
+                const e = outbox[tag][k] || (outbox[tag][k] = [0, 0]);
+                e[0] += sum;
+                e[1] += n;
+                outCount += n;
+            }
+        dec.forEach((n, i) => (outDec[i] += n));
+        if (outCount > OUTBOX_MAX) {
+            outbox = { t: {}, c: {}, m: {} };
+            outCount = 0;
+        }
+    }
+    // send what the boss learned since the last upload (force: leaving the page, no waiting)
+    async function upload(force) {
+        if (!sharedOn() || uploading || outCount === 0) return;
+        if (!force && Date.now() - lastUpload < UPLOAD_MIN_MS) return;
+        // take up to UPLOAD_MAX_ENTRIES entries; the rest stays for the next time
+        const part = { t: {}, c: {}, m: {} };
+        let taken = 0,
+            takenCount = 0;
+        for (const tag of ["t", "c", "m"])
+            for (const [k, v] of Object.entries(outbox[tag])) {
+                if (taken >= UPLOAD_MAX_ENTRIES) break;
+                part[tag][k] = [Number(v[0].toFixed(3)), v[1]];
+                delete outbox[tag][k];
+                taken++;
+                takenCount += v[1];
+            }
+        outCount -= takenCount;
+        const dec = outDec;
+        outDec = Array(7).fill(0);
+        const body = JSON.stringify({ v: VERSION, sig: SIG, dec, ...part });
+        uploading = true;
+        lastUpload = Date.now();
+        try {
+            const res = await fetch(SCORE_API + "/api/rl", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body,
+                keepalive: !!force && body.length < 60000,
+            });
+            if (res.status === 409) sync(true); // the boss was replaced on the server: what we sent no longer fits
+            else if (!res.ok && res.status >= 500) restore(part, dec);
+        } catch (_) {
+            restore(part, dec);
+        } finally {
+            uploading = false;
+        }
+    }
+    // fetch the shared boss (what everybody has taught it) and use it as our tables
+    async function sync(force) {
+        if (!sharedOn() || syncing) return;
+        if (!force && Date.now() - lastSync < SYNC_MIN_MS) return;
+        syncing = true;
+        lastSync = Date.now();
+        try {
+            const res = await fetch(SCORE_API + "/api/rl", { cache: "no-store", headers: etag ? { "If-None-Match": etag } : {} });
+            if (res.status === 304 || !res.ok) return;
+            if (importData(await res.json())) etag = res.headers.get("ETag") || "";
+        } catch (_) {
+            // offline or the server is waking up: keep playing with what we have
+        } finally {
+            syncing = false;
+        }
+    }
+
     /* ---- save / load ---- */
     function exportData(digits = 3) {
         const dump = (t) => {
@@ -576,7 +676,16 @@ const RL = (() => {
             }
             return out;
         };
-        return { v: VERSION, sig: SIG, stats, t: dump(table), c: dump(ctable), m: dump(mtable) };
+        return {
+            v: VERSION,
+            sig: SIG,
+            // table sizes: the server uses them to check the keys it receives
+            shape: { t: 7 * N_STATE, c: 7 * N_COARSE, m: 7 * N_COARSE, a: A, moves: MOVES.length },
+            stats,
+            t: dump(table),
+            c: dump(ctable),
+            m: dump(mtable),
+        };
     }
     function importData(d) {
         if (!d || d.v !== VERSION || d.sig !== SIG) return false;
@@ -596,10 +705,11 @@ const RL = (() => {
         stats = { decisions: 0, byForm: Array(7).fill(0), episodes: 0, ...d.stats };
         return true;
     }
-    function save() {
+    function save(force) {
         try {
             localStorage.setItem(STORE_KEY, JSON.stringify(exportData()));
         } catch (_) {}
+        upload(force === true);
     }
     // forget what was learned in this browser and go back to the shipped starting point (or nothing)
     function clear() {
@@ -609,6 +719,10 @@ const RL = (() => {
         table.clear();
         ctable.clear();
         mtable.clear();
+        outbox = { t: {}, c: {}, m: {} };
+        outCount = 0;
+        outDec = Array(7).fill(0);
+        etag = "";
         stats = { decisions: 0, byForm: Array(7).fill(0), episodes: 0 };
         if (typeof RL_PRETRAINED !== "undefined") importData(RL_PRETRAINED);
         reset();
@@ -620,12 +734,13 @@ const RL = (() => {
             if (raw) ok = importData(JSON.parse(raw));
         } catch (_) {}
         if (!ok && typeof RL_PRETRAINED !== "undefined") importData(RL_PRETRAINED);
+        sync(true); // then switch to the shared boss as soon as the server answers
     }
     init();
     if (typeof window !== "undefined" && window.addEventListener) {
-        window.addEventListener("pagehide", save);
+        window.addEventListener("pagehide", () => save(true));
         document.addEventListener("visibilitychange", () => {
-            if (document.hidden) save();
+            if (document.hidden) save(true);
         });
     }
 
@@ -633,11 +748,11 @@ const RL = (() => {
     function hud() {
         const act = macro ? ACTIONS[macro.a].name : label;
         const tag = calm > 0 ? "（休憩）" : tired > 0 ? "（疲れ）" : "";
-        return "AI: " + (act || "…") + tag + " / 動き:" + MOVES[moveMode] + " / 学習" + stats.decisions + "手 ε" + (form >= 0 ? eps() : 0).toFixed(2);
+        return "AI: " + (act || "…") + tag + " / 動き:" + MOVES[moveMode] + " / " + (sharedOn() ? "みんなの学習" : "学習") + stats.decisions + "手 ε" + (form >= 0 ? eps() : 0).toFixed(2);
     }
 
     return {
-        reset, update, moveBoss, onHit, save, clear, hud, exportData, importData,
+        reset, update, moveBoss, onHit, save, clear, hud, exportData, importData, sync,
         // for tools/train-rl.js
         setLearning(on, epsilon = null) { learnOn = on; epsFixed = epsilon; },
         _internals: { ACTIONS, MOVES, usage, get rewardSum() { return rewardSum; }, get stats() { return stats; }, get calm() { return calm; } },

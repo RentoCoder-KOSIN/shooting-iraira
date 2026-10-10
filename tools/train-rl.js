@@ -11,6 +11,7 @@
  *    node tools/train-rl.js train [rounds] [seed] 訓練して rl-pretrained.js に書き出す (初期状態としてゲームに同梱される)
  *    node tools/train-rl.js fresh [rounds]      学習ゼロのボス(ランダムに技を選ぶ)で測定 = 学習前の比較用
  *    node tools/train-rl.js base  [rounds]      比較用: 理不尽モード(固定順)のボスで同じ測定
+ *  (公開中のサーバーで「みんなが育てたボスAI」を rl-pretrained.js に取り込むのは tools/pull-rl.js)
  *  rounds = 7形態を何周するか (1周 = 各形態 40 秒)
  *  環境変数 BOT=weak  で人間っぽい弱いBot(見える範囲が狭い・たまに操作が止まる)に変えられる
  *  環境変数 BOT=mix   で強いBotと弱いBotを1周ごとに交代させる (train はこれが推奨)

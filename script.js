@@ -429,7 +429,7 @@ adminReset.addEventListener("click", async () => {
     }
     adminReset.disabled = false;
 });
-/* reset what the RLモード boss AI has learned in this browser: press twice (second press within 4 s) */
+/* reset what the RLモード boss AI has learned (this browser + the shared one on the server): press twice (second press within 4 s) */
 const adminRlReset = document.getElementById("admin-rl-reset");
 const adminRlMsg = document.getElementById("admin-rl-msg");
 let rlResetArmed = false;
@@ -451,7 +451,20 @@ adminRlReset.addEventListener("click", () => {
     }
     disarmRlReset();
     RL.clear();
-    adminRlMsg.textContent = "ボスAIの学習をリセットしました";
+    adminRlMsg.textContent = "リセット中…";
+    // the boss AI that everybody teaches lives on the server: reset that one too
+    fetch(SCORE_API + "/api/rl/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassUsed }),
+    })
+        .then((res) => {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            adminRlMsg.textContent = "ボスAIの学習をリセットしました（全員共通のぶんも）";
+        })
+        .catch(() => {
+            adminRlMsg.textContent = "このブラウザのぶんはリセットしました（サーバー側は失敗、またはサーバーなし）";
+        });
 });
 adminEl
     .querySelectorAll("[data-close]")
