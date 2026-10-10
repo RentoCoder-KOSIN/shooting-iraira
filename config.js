@@ -743,9 +743,14 @@ let camperN = 0; // checks in a row where the player barely moved
 //   - same half at 2 checks in a row  -> that half gets sealed by vertical beams
 //   - left/right/left (2 switches)    -> the half you are about to go to gets sealed
 // sealing = vertical beams (80 px apart, gaps of 44 px) over one half; the warning lasts 1 second.
+// Like the other beam patterns, the positions swap every second time (A, B, A, B ...):
+//   A: 40 / 120 / 200 px from the center, B: 80 / 160 / 240 px (shifted by 40 px, the last one is at the wall).
+let sealAlt = false; // false = A, true = B (flips on every seal, also across plays)
 function sealSide(side) {
-    for (let d = 40; d < W / 2; d += 80)
+    const start = sealAlt ? 80 : 40;
+    for (let d = start; d < W / 2 + (sealAlt ? 1 : 0); d += 80)
         beam({ x: CX + side * d, y: 0, angle: PI / 2, warn: 60, dur: 40, width: 36 });
+    sealAlt = !sealAlt;
 }
 
 // Beam patterns that start from the same positions every time are easy to memorise. So every beam pattern
