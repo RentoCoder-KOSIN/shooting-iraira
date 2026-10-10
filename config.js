@@ -748,6 +748,19 @@ function sealSide(side) {
         beam({ x: CX + side * d, y: 0, angle: PI / 2, warn: 60, dur: 40, width: 36 });
 }
 
+// Beam patterns that start from the same positions every time are easy to memorise. So every beam pattern
+// remembers how often it was played and swaps its positions every second time (A, B, A, B ...).
+// beamAlt(name, t) is false for the 1st, 3rd, ... play and true for the 2nd, 4th, ... play. Call it every frame.
+const beamAltState = {};
+function beamAlt(name, t) {
+    const s = beamAltState[name] || (beamAltState[name] = { plays: 0, alt: false });
+    if (t === 0) {
+        s.alt = s.plays % 2 === 1;
+        s.plays++;
+    }
+    return s.alt;
+}
+
 const PATTERNS = {
     // fan shots; from the 4th volley the shots bend sideways
     rep: {
@@ -825,8 +838,9 @@ const PATTERNS = {
     vbeam: {
         duration: 300,
         run(t) {
+            const alt = beamAlt("vbeam", t); // every second play: the two waves and the horizontal beams swap places
             if (t === 0 || t === 150) {
-                const offset = t ? 40 : 0;
+                const offset = (t ? 40 : 0) ^ (alt ? 40 : 0); // 0 / 40 first, then the other one
                 // beams across the whole width (6 beams when W = 480)
                 const n = Math.floor(W / 80),
                     x0 = (W - (n - 1) * 80) / 2;
@@ -835,7 +849,7 @@ const PATTERNS = {
             }
             // 3 horizontal beams per wave, fired between the vertical waves
             if (t === 70 || t === 210) {
-                const ys = t === 70 ? [180, 340, 500] : [260, 420, 580];
+                const ys = (t === 70) !== alt ? [180, 340, 500] : [260, 420, 580];
                 for (const y of ys) beam({ x: 0, y, angle: 0, warn: 50, dur: 40, width: 36 });
             }
             if (t % 45 === 20) bossShot("normal", aimFromBoss(), 3);
@@ -846,8 +860,9 @@ const PATTERNS = {
     refl: {
         duration: 330,
         run(t) {
+            const alt = beamAlt("refl", t); // every second play: the two volleys swap places
             if (t === 0 || t === 150) {
-                for (const f of t ? [0.2, 0.8] : [0.35, 0.65])
+                for (const f of (t === 0) !== alt ? [0.35, 0.65] : [0.2, 0.8])
                     beam({
                         x: boss.x,
                         y: boss.y + BOSS_MUZZLE_Y,
@@ -890,12 +905,13 @@ const PATTERNS = {
     rot: {
         duration: 320,
         run(t) {
+            const alt = beamAlt("rot", t); // every second play: the mirror image (starts on the other side, turns the other way)
             if (t === 0)
                 beam({
                     x: boss.x,
                     y: boss.y + BOSS_MUZZLE_Y,
-                    angle: 0.2,
-                    turn: 0.011,
+                    angle: alt ? PI - 0.2 : 0.2,
+                    turn: alt ? -0.011 : 0.011,
                     warn: 40,
                     dur: 260,
                     width: 22,
