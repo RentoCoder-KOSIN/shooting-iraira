@@ -112,7 +112,7 @@ const MODES = [
         bossHealRatio: 0.3,
         redDmgMul: 3,
         ranked: true,
-        rowWave: true, // the orange wall: every row has its own speed wave
+        rowWave: true, // the orange wall: flow -> all rows stop -> all rows drop fast (see WALL_STOP_FRAMES)
     },
     {
         id: "normal",
@@ -127,7 +127,7 @@ const MODES = [
         bossHealRatio: 0.2,
         redDmgMul: 2,
         ranked: true, // 通常モードもランキングに登録される（モードごとに別のボード）
-        rowWave: false, // the orange wall: the whole wall speeds up / slows down together (no per-row wave)
+        rowWave: false, // the orange wall: the old behaviour (the whole wall speeds up / slows down together)
     },
     {
         // RLモード: 理不尽モードと同じ7形態・同じHP・同じ玉の効果。違うのはボスの中身だけ。
@@ -144,7 +144,7 @@ const MODES = [
         bossHealRatio: 0.3,
         redDmgMul: 3,
         ranked: false, // the boss is different for every player, so the scores cannot be compared
-        rowWave: true, // the orange wall: every row has its own speed wave (same as 理不尽モード)
+        rowWave: true, // the orange wall: flow -> stop -> drop fast (same as 理不尽モード)
         rl: true, // the boss is controlled by RL (rl.js)
     },
 ];
@@ -387,8 +387,7 @@ const BULLET_TYPES = {
     yellow: { color: "#ff0" }, // yellow, used for the "different" shots
     cyan: { color: "#5cf" }, // used by the "follow" pattern
     aqua: { color: "#0ff" }, // used by the "fake homing" pattern
-    // the big orange bullets of the wall. Every ROW has its own speed (see wallPath / wallPace),
-    // but a row can never catch up with or pass the row in front of it.
+    // the big orange bullets of the wall. A whole ROW moves together (see wallPath / wallPace).
     wall: { r: 6, color: "#f80", path: "wallPath", paces: ["wallPace"], randomTempo: false },
     homing: { r: 6, color: "#f6f", path: "homing", homeFrames: 80 }, // chases the player for a while
     trail: { r: 4, color: "#fa0", delay: 40 }, // left behind the player, appears later
@@ -589,29 +588,28 @@ const WALL_SPEED = 2.8; // wall pattern: base fall speed (pixels per frame)
 const WALL_MAX_V = 4.6;
 const WALL_GAP_SLOPE = 0.3; // how fast the gap swings from row to row (smaller = gentler)
 const WALL_ROW_SPACING = 68; // wall pattern: distance between rows in pixels (always kept)
-// Wall tempo (緩急) of 理不尽モード / RLモード: every ROW has its own speed.
-//   1. a row falls with its own speed wave (the wave is shifted from row to row)
-//   2. halfway down (WALL_STOP_Y) it STOPS for a moment (WALL_STOP_LEN)
-//   3. then it DASHES straight down to the bottom at WALL_DASH_V
-// A row can NEVER catch up with the row in front of it (WALL_MIN_ROW_GAP): no overtaking, no touching.
-// Why the dash stays dodgeable: the gap moves sideways by up to ~45 px from row to row, the player moves
-// 4 px/frame, so two rows must pass the player at least ~12 frames apart. A row may only start its dash
-// WALL_DASH_STAGGER frames after the row in front of it started to dash (a domino), so a stopped row
-// waits (and stays visible) until it is its turn. The gaps of stopped rows are standing still,
-// so the player can line up with them before the dash.
+// The wall of 理不尽モード / RLモード (流れる → 突然停止 → 急降下 → 画面外で消去):
+//   1. every row flows down at a constant speed (WALL_SPEED)
+//   2. when the lowest flowing row reaches WALL_STOP_Y, ALL rows stop at the same moment (WALL_STOP_FRAMES = 0.6 s)
+//   3. then ALL rows drop straight down together at WALL_DASH_V, keeping their shape and spacing
+//   4. bullets that left the screen are deleted at once (updateBullets), and so are their rows
+// Why the dash stays dodgeable: rows pass the player WALL_ROW_SPACING / WALL_DASH_V = 7.6 frames apart.
+// The gap moves sideways by at most WALL_GAP_SLOPE_DASH * 150 = 24 px from row to row, which is 3.2 px/frame
+// (the player moves 4 px/frame), and the gap is 80 px wide. The stopped wall stands still for 0.6 s, so the
+// player can see the gaps and line up before the dash starts.
 const WALL_MIN_ROW_GAP = 56; // rows never come closer than this (a bit less than WALL_ROW_SPACING = 68)
-const WALL_ROW_PHASE = 0.9; // wave phase shift per row in radians (bigger = a shorter wave through the rows)
-const WALL_STOP_Y = [170, 360]; // a row stops when it reaches a y inside this range (random per row)
-const WALL_STOP_LEN = [25, 45]; // frames a row stands still
-const WALL_DASH_V = 9; // px per frame while dashing (the normal wall cap is WALL_MAX_V)
-const WALL_DASH_STAGGER = 14; // a row starts its dash at least this many frames after the row in front
+const WALL_STOP_Y = [330, 430]; // the wall stops when its lowest row reaches a y inside this range (random each time)
+const WALL_STOP_FRAMES = 36; // how long the wall stands still (0.6 s)
+const WALL_DASH_V = 9; // px per frame while dropping (the flowing wall is slower, see WALL_MAX_V)
+const WALL_GAP_SLOPE_DASH = 0.16; // gap swing of this wall (smaller than WALL_GAP_SLOPE: the dash is fast)
 // whole-wall tempo events (used by 通常モード only, see below)
 const WALL_EVENTS = [
     { kind: "stop", weight: 1, len: [25, 55] }, // the row stops for `len` frames, then bursts forward
     { kind: "dash", weight: 1, slow: [25, 45], len: [30, 45] }, // creeps for `slow`, then dashes for `len`
 ];
 
-let wallList = []; // the rows on the screen, the oldest (lowest) first: { y, idx, f, mode, stopY, stopLen, stopStart, dashStart }
+let wallList = []; // the rows on the screen, the oldest (lowest) first: { y, idx, f, mode: flow|stop|dash, stopStart, dashStart }
+let wallStopY = 380; // where the next stop happens
 let wallRows = 0; // rows fired so far in this pattern
 let wallStepFrame = -1; // the frame in which the rows were last moved (they move once per frame)
 // 通常モード (mode.rowWave = false): the WHOLE wall shares one speed wave and stops / dashes together
@@ -643,6 +641,28 @@ function wallSyncFactor() {
     return f;
 }
 
+// flow -> stop -> dash for the whole group of rows at once
+function wallGroupStep() {
+    const stopped = wallList.filter((r) => r.mode === "stop");
+    if (stopped.length) {
+        if (frame - stopped[0].stopStart >= WALL_STOP_FRAMES) {
+            for (const r of stopped) {
+                r.mode = "dash"; // all rows drop at the same moment
+                r.dashStart = frame;
+            }
+        }
+        return;
+    }
+    const flowing = wallList.filter((r) => r.mode === "flow");
+    if (flowing.length && flowing[0].y >= wallStopY) {
+        for (const r of flowing) {
+            r.mode = "stop"; // all rows stop at the same moment
+            r.stopStart = frame;
+        }
+        wallStopY = rand(...WALL_STOP_Y);
+    }
+}
+
 // Moves every row by this frame's distance and stores it as row.f (the speed factor of its bullets).
 // Called from wallRun() and from the bullets' pace, so the rows keep moving after the pattern is over.
 function wallStepOnce() {
@@ -653,34 +673,20 @@ function wallStepOnce() {
     let frontY = Infinity; // y of the row in front of this one
     const rowWave = gameMode.rowWave; // false: every row gets the same factor (通常モード)
     const syncF = rowWave ? 1 : wallSyncFactor();
-    let front = null; // the row in front of this one
+    if (rowWave) wallGroupStep();
     for (const r of wallList) {
         let f = syncF;
         let dashing = false;
         if (rowWave) {
-            if (r.mode === "fall" && r.y >= r.stopY) {
-                r.mode = "stop";
-                r.stopStart = frame;
-            }
-            // dash: after the stop, and only WALL_DASH_STAGGER frames after the row in front started its dash
-            if (
-                r.mode === "stop" &&
-                frame - r.stopStart >= r.stopLen &&
-                (!front || (front.dashStart !== null && frame - front.dashStart >= WALL_DASH_STAGGER))
-            ) {
-                r.mode = "dash";
-                r.dashStart = frame;
-            }
             if (r.mode === "stop") f = 0;
             else if (r.mode === "dash") dashing = true;
-            else f = 1 + WAVE_AMP * Math.sin((2 * PI * frame) / WAVE_PERIOD + r.idx * WALL_ROW_PHASE);
+            else f = 1; // flowing: a constant speed
         }
         let d = dashing ? WALL_DASH_V : base * Math.min(f, cap);
         d = Math.max(0, Math.min(d, frontY - WALL_MIN_ROW_GAP - r.y)); // never pass / touch the row in front
         r.f = d / base;
         r.y += d;
         frontY = r.y;
-        front = r;
     }
     wallList = wallList.filter((r) => r.y < H + 30);
 }
@@ -690,16 +696,7 @@ function wallRowFactor(b) {
     return b.row ? b.row.f : 1;
 }
 function newWallRow() {
-    return {
-        y: -8,
-        idx: wallRows,
-        f: 0, // 0: it starts to move next frame
-        mode: "fall", // fall -> stop -> dash (only used when the mode has rowWave)
-        stopY: rand(...WALL_STOP_Y),
-        stopLen: rand(...WALL_STOP_LEN),
-        stopStart: 0,
-        dashStart: null,
-    };
+    return { y: -8, idx: wallRows, f: 0, mode: "flow", stopStart: 0, dashStart: null }; // f = 0: it starts to move next frame
 }
 
 // The wall pattern as a function: dir = 1 sweeps the gap to the right first, dir = -1 (mirrored) to the left first.
@@ -709,6 +706,7 @@ function wallRun(t, dir) {
         if (!bullets.some((b) => b.type === "wall")) wallList = []; // forget rows whose bullets are gone
         wallEvent = null;
         wallNextEvent = frame + rand(...WALL_EVENT_GAP);
+        wallStopY = rand(...WALL_STOP_Y);
     }
     wallFiring = t < 340;
     wallStepOnce();
@@ -716,7 +714,8 @@ function wallRun(t, dir) {
     const newest = wallList[wallList.length - 1];
     if (newest && newest.y < -8 + WALL_ROW_SPACING) return; // the next row is fired when the last one has moved far enough
     // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
-    const gap = CX + dir * Math.sin(wallRows * WALL_GAP_SLOPE * (480 / W)) * 150 * (W / 480);
+    const slope = gameMode.rowWave ? WALL_GAP_SLOPE_DASH : WALL_GAP_SLOPE;
+    const gap = CX + dir * Math.sin(wallRows * slope * (480 / W)) * 150 * (W / 480);
     const shift = wallRows % 2 ? 12 : 0;
     const row = newWallRow();
     wallList.push(row);

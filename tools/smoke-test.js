@@ -86,6 +86,102 @@ const t = vm.runInContext(`(function () {
     drawAll();
     state = S.PRACT; drawAll();
 
+    // wall: 理不尽/RL = flow -> ALL rows stop together (0.6 s) -> ALL rows drop together, shape kept;
+    //       通常 = the old whole-wall wave
+    for (const [mid, name] of [["hard", "wall"], ["hard", "wallR"], ["rl", "wall"], ["normal", "wall"]]) {
+        gameMode = MODES.find((m) => m.id === mid);
+        let minGap = 1e9, maxSpread = 0, mismatch = 0, stuck = 0, maxClear = 0, groups = 0;
+        let stopSeen = 0, maxNormal = 0, maxDash = 0, badStop = 0, badDash = 0, badShape = 0, flowOk = 0, maxRows = 0, maxBullets = 0;
+        for (let trial = 0; trial < 20; trial++) {
+            bullets = []; wallList = []; speedMul = 1.1; player.x = CX; player.y = -900; player.inv = 1e9;
+            const seenStop = new Set();
+            let cleared = -1;
+            for (let i = 0; i < 2500; i++) {
+                if (i < PATTERNS[name].duration) PATTERNS[name].run(i);
+                const before = new Map(wallList.map((r) => [r, r.y]));
+                updateBullets(); frame++;
+                for (let k = 1; k < wallList.length; k++) minGap = Math.min(minGap, wallList[k - 1].y - wallList[k].y);
+                const fs = wallList.filter((r) => r.y > -8).map((r) => r.f); // a row fired this frame has not moved yet
+                if (fs.length > 2) maxSpread = Math.max(maxSpread, Math.max(...fs) - Math.min(...fs));
+                const dashSteps = new Map(); // dashStart -> steps of the rows that dash together
+                for (const r of wallList) {
+                    if (r.mode === "stop") {
+                        stopSeen++;
+                        if (r.y > 150 && r.f !== 0) badStop++;
+                        seenStop.add(r);
+                    }
+                    if (r.dashStart !== null && r.stopStart > 0 && r.dashStart - r.stopStart !== WALL_STOP_FRAMES) badDash++;
+                    if (!before.has(r)) continue;
+                    const step = r.y - before.get(r);
+                    if (r.mode === "dash") {
+                        maxDash = Math.max(maxDash, step);
+                        if (!dashSteps.has(r.dashStart)) dashSteps.set(r.dashStart, []);
+                        dashSteps.get(r.dashStart).push(step);
+                    } else {
+                        maxNormal = Math.max(maxNormal, step);
+                        if (r.mode === "flow" && Math.abs(step - WALL_SPEED * speedMul) < 1e-9) flowOk++;
+                    }
+                }
+                for (const steps of dashSteps.values()) if (Math.max(...steps) - Math.min(...steps) > 1e-9) badShape++;
+                // all rows that stopped in the same frame must have the same stopStart
+                const starts = new Set(wallList.filter((r) => r.mode === "stop").map((r) => r.stopStart));
+                if (starts.size > 1) badStop++;
+                maxRows = Math.max(maxRows, wallList.length);
+                maxBullets = Math.max(maxBullets, bullets.length);
+                for (const b of bullets) if (b.type === "wall" && b.row && Math.abs(b.y - b.row.y) > 1e-6 && b.row.y < H) mismatch++;
+                if (i >= PATTERNS[name].duration && !bullets.some((b) => b.type === "wall")) { cleared = i; break; }
+            }
+            if (cleared < 0) stuck++; else maxClear = Math.max(maxClear, cleared);
+            groups += new Set([...seenStop].map((r) => r.stopStart)).size;
+        }
+        const tag = mid + "/" + name;
+        ok(tag + ": rows keep >= " + WALL_MIN_ROW_GAP + "px apart (min " + minGap.toFixed(1) + ")", minGap >= WALL_MIN_ROW_GAP - 1e-6);
+        if (gameMode.rowWave) {
+            ok(tag + ": the wall stops, all rows in the same frame (" + groups / 20 + " stops per run)", stopSeen > 50 && badStop === 0 && groups / 20 >= 1);
+            ok(tag + ": it stands still for exactly " + WALL_STOP_FRAMES + " frames, then all rows drop together", badDash === 0);
+            ok(tag + ": drops at " + maxDash.toFixed(1) + " px/frame (cap " + WALL_DASH_V + ")", maxDash > WALL_DASH_V - 0.01 && maxDash <= WALL_DASH_V + 1e-6);
+            ok(tag + ": rows keep their shape while dropping", badShape === 0);
+            ok(tag + ": flows at a constant speed (" + flowOk + " flowing steps, max " + maxNormal.toFixed(2) + " px/frame)", flowOk > 100 && maxNormal <= WALL_MAX_V + 1e-6);
+            ok(tag + ": stays light (max " + maxRows + " rows, " + maxBullets + " bullets alive)", maxRows <= 12 && maxBullets < 400);
+        } else {
+            ok(tag + ": NO wave - every row has the same speed (spread " + maxSpread.toFixed(4) + ")", maxSpread < 1e-9);
+            ok(tag + ": speed cap respected (max " + maxNormal.toFixed(2) + " px/frame)", maxNormal <= WALL_MAX_V + 1e-6);
+        }
+        ok(tag + ": every bullet stays on its row", mismatch === 0);
+        ok(tag + ": always leaves the screen (slowest " + maxClear + " frames)", stuck === 0);
+    }
+    bullets = []; wallList = []; player.inv = 0; player.y = 500; speedMul = 1;
+
+    // the new wall must be dodgeable the way a person does it: line up with the gap of the row that
+    // arrives next and move on to the next gap after it has passed (4 px/frame, the real player speed)
+    for (const [mid, name, py] of [["hard", "wall", 560], ["hard", "wallR", 560], ["rl", "wall", 560], ["hard", "wall", 300], ["hard", "wallR", 130]]) {
+        gameMode = MODES.find((m) => m.id === mid);
+        let hits = 0, frames = 0;
+        for (let trial = 0; trial < 20; trial++) {
+            bullets = []; wallList = []; speedMul = 1.1; player.x = CX; player.y = py; player.inv = 0; player.hp = 1000; dmgMul = 1;
+            for (let i = 0; i < 2500; i++) {
+                if (i < PATTERNS[name].duration) PATTERNS[name].run(i);
+                // the closest row above the player: where is its gap?
+                const above = wallList.filter((r) => r.y < player.y - 4 && r.y > -8).sort((a, b) => b.y - a.y)[0];
+                if (above) {
+                    const xs = bullets.filter((b) => b.row === above).map((b) => b.x).sort((a, b) => a - b);
+                    let best = 0, cx = CX, prev = 0;
+                    for (const x of [...xs, W]) { if (x - prev > best) { best = x - prev; cx = (x + prev) / 2; } prev = x; }
+                    const dx = Math.max(-4, Math.min(4, cx - player.x));
+                    player.x += dx;
+                }
+                const hp = player.hp;
+                updateBullets(); frame++;
+                if (player.inv > 0) player.inv--;
+                if (player.hp < hp) hits++;
+                frames++;
+                if (i >= PATTERNS[name].duration && !bullets.some((b) => b.type === "wall")) break;
+            }
+        }
+        ok(mid + "/" + name + " at y=" + py + ": a gap-follower is never hit (" + hits + " hits in " + (frames / 3600).toFixed(1) + " min)", hits === 0);
+    }
+    bullets = []; wallList = []; player.inv = 0; player.y = 500; speedMul = 1;
+
     // normal modes are untouched
     resetGame(); chooseMode(0);
     for (let i = 0; i < 600 && state === S.PLAY; i++) { update(); orbs = []; }

@@ -1179,6 +1179,21 @@ function drawField() {
         ctx.lineWidth = active ? b.w : 2;
         ctx.stroke();
     }
+    // streaks behind the orange wall while it drops (one path per streak style, so it stays light)
+    for (const [len, w, a] of [[70, 2, 0.16], [34, 4, 0.3]]) {
+        ctx.beginPath();
+        let any = false;
+        for (const b of bullets)
+            if (b.row && b.row.mode === "dash") {
+                ctx.moveTo(b.x, b.y);
+                ctx.lineTo(b.x, b.y - len);
+                any = true;
+            }
+        if (!any) break;
+        ctx.strokeStyle = "rgba(255,136,0," + a + ")";
+        ctx.lineWidth = w;
+        ctx.stroke();
+    }
     // bullets (faint while waiting)
     for (const b of bullets) {
         ctx.globalAlpha = b.delay > 0 ? 0.3 : 1;
