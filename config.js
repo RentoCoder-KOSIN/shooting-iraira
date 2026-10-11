@@ -1129,7 +1129,7 @@ const SEQUENCES = [
         ["wall"], // no beam here: wall + beam was impossible to dodge
         ["refl", "vbeam", "fake"],
         ["orbs", "trail", "follow"],
-        ["rot", "vbeam", "home", "orbs"],
+        ["rot", "home", "orbs"], // no vbeam here: the rotating beam + the vertical beams were impossible to dodge
     ],
 ];
 
