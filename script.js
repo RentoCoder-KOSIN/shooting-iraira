@@ -652,6 +652,7 @@ function rollGagSwap() {
 function pressGagAnswer(yes) {
     if (gagLock > 0) return;
     gagLock = GAG_LOCK_FRAMES;
+    Sound.se("decide");
     if (gagStep === 0) {
         gagStep = 1; // "やりました！"
         rollGagSwap();
@@ -722,6 +723,7 @@ function onOtherKey(e) {
             note = " → 使用済み";
         } else {
             keyHealUsed = true;
+            Sound.se("heal");
             player.hp = Math.min(playerMaxHp, player.hp + KEY_HEAL);
             speedMul += KEY_BOSS_BUFF;
             note = " → 回復! ボス強化";
@@ -742,6 +744,11 @@ window.addEventListener("keydown", (e) => {
     if (isAdminShortcut(e)) {
         e.preventDefault();
         openAdmin();
+        return;
+    }
+    if (e.key === "-") {
+        // "-" mutes / unmutes (not a letter or digit, so it is never the secret key)
+        if (!e.repeat) Sound.toggleMute();
         return;
     }
     keys[e.key.toLowerCase()] = true;
@@ -1067,6 +1074,7 @@ function drawFx() {
     ctx.globalAlpha = 1;
 }
 const orbFx = (x, y, color) => {
+    Sound.se("orb");
     ringFx(x, y, color, 26, 16);
     burstFx(x, y, color, 8, 2.5, 16);
 };
@@ -1079,6 +1087,7 @@ function takeOrb(id) {
 
 function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
+    Sound.se("hurt");
     player.hp -= dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
     if (gameMode.rl) RL.onHit(); // the boss AI learns from it (and takes a short break if it hits too often)
@@ -1108,6 +1117,7 @@ function movePlayer() {
 function updateShots() {
     if (frame % PLAYER_SHOT_INTERVAL === 0) {
         const sy = player.y - PLAYER_SHOT_OFFSET_Y;
+        Sound.se("shot");
         shots.push(
             { x: player.x - PLAYER_SHOT_SPACING, y: sy },
             { x: player.x + PLAYER_SHOT_SPACING, y: sy },
@@ -1121,6 +1131,7 @@ function updateShots() {
         ) {
             boss.hp -= attackMul; // 1 normally, more with the admin slider
             bossFlash = 3;
+            Sound.se("bossHit");
             burstFx(s.x, s.y, "#9ef", 2, 2.5, 10); // tiny sparks at the hit point
             return false;
         }
@@ -1219,6 +1230,7 @@ function checkBossDefeated() {
     ringFx(boss.x, boss.y, "#fc3", 80, 32);
     burstFx(boss.x, boss.y, "#fc3", 26, 5, 34);
     shake = FX_SHAKE_DEFEAT;
+    Sound.se("bossDefeat");
     bullets = [];
     beams = [];
     queue = [];
@@ -1289,6 +1301,52 @@ function updatePlay() {
     checkBossDefeated();
 }
 
+/* ---- audio (see audio.js): BGM follows the screen, menu / result sounds follow state changes ---- */
+const AUDIO_MENU_STATES = [S.TITLE, S.MODE, S.PRACT, S.WLIST, S.WATCH, S.OVER, S.WIN];
+let audioPrev = null; // the state at the previous frame
+let audioKey = ""; // menu cursor positions at the previous frame
+// Which BGM to play now: names in priority order (the first one that exists is used). [] = silence
+function sceneBgm() {
+    switch (state) {
+        case S.TITLE:
+        case S.MODE:
+        case S.PRACT:
+        case S.WLIST:
+            return ["title"];
+        case S.SELECT:
+            return ["select", "play"];
+        case S.PLAY:
+        case S.GAG:
+            return ["form" + (fightForm() + 1), "play"]; // form1..form7, or play when that form has no BGM
+        case S.FCLEAR: // the fake CLEAR
+        case S.WIN:
+            return ["win"];
+        case S.OVER:
+            return ["over"];
+        default:
+            return []; // FAKE (the fake game over) and WATCH are silent
+    }
+}
+function audioTick() {
+    const key = `${modeIdx}|${practMode}|${practForm}|${boardMode}`;
+    if (state !== audioPrev) {
+        if (audioPrev !== null) {
+            if (state === S.OVER) Sound.se("gameover");
+            else if (state === S.WIN) Sound.se("clear");
+            else if (state === S.FCLEAR) Sound.se("fclear");
+            else if (state === S.FAKE) Sound.se("fake");
+            else if (AUDIO_MENU_STATES.includes(audioPrev)) Sound.se("decide");
+        }
+        audioPrev = state;
+    } else if (
+        key !== audioKey &&
+        (state === S.TITLE || state === S.MODE || state === S.PRACT)
+    )
+        Sound.se("cursor");
+    audioKey = key;
+    Sound.bgm(...sceneBgm());
+}
+
 function update() {
     if (adminOpen) return; // paused while the admin panel is open
     frame++;
@@ -1330,6 +1388,7 @@ function update() {
             }
             break;
     }
+    audioTick();
 }
 
 /* ---- live broadcast for spectators (see net.js / realtime.js) ---- */

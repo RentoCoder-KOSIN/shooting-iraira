@@ -255,13 +255,15 @@ function createApp(store, rl) {
     app.disable("x-powered-by");
 
     // Only the game files are public (not server.js / package.json / scores.json)
-    const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js"];
+    const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js", "audio.js"];
     app.get("/", (req, res) =>
         res.sendFile(path.join(__dirname, "index.html")),
     );
     for (const f of FILES)
         app.get("/" + f, (req, res) => res.sendFile(path.join(__dirname, f)));
     app.get("/favicon.ico", (req, res) => res.status(204).end());
+    // BGM / sound effects (audio/bgm/*.mp3, audio/se/*.mp3). Missing files simply answer 404 and the game stays silent
+    app.use("/audio", express.static(path.join(__dirname, "audio"), { fallthrough: true, index: false }));
 
     app.get("/api/scores", async (req, res) => {
         try {

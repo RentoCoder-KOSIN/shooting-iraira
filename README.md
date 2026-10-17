@@ -51,6 +51,31 @@ node tools/train-rl.js train 60     # 60周訓練して rl-pretrained.js を書�
 `rl.js` の行動（`MICRO`）や報酬を変えたら、`rl-pretrained.js` は技の一覧が変わると自動で無効になる
 （`sig` が合わないと読み込まない）ので、`train` で作り直すこと。
 
+## 音声（BGM・効果音）
+
+音声は `audio/` フォルダにファイルを置くだけで鳴ります（設定は `audio.js` の先頭）。**ファイルが無い音は無音のまま**で、エラーにはなりません。1つずつ追加できます。
+
+```
+audio/
+├─ bgm/   title.mp3  select.mp3  play.mp3  form1.mp3 〜 form7.mp3  over.mp3  win.mp3
+└─ se/    shot  bossHit  hurt  orb  heal  bossDefeat  gameover  clear  fclear  fake  decide  cursor （どれも .mp3）
+```
+
+| BGM | 流れる場面 |
+| --- | --- |
+| title | タイトル・モード選択・練習の選択画面 |
+| select | 玉の選択画面（無ければ play） |
+| play | 戦闘中。`form1`〜`form7` があればその形態ではそちらが優先 |
+| over / win | ゲームオーバー / クリア（ループしない）。win は偽のCLEARでも流れる |
+
+偽のゲームオーバー（紫の玉）の間は無音です（`script.js` の `sceneBgm()` で変更可）。
+
+- 拡張子を変える（wav / ogg）→ `audio.js` の `ext`
+- 1つだけ別名にする → その音に `file: "xxx/yyy.ogg"`
+- 音量・連打間隔 → `vol`（0〜1）/ `cooldown`（ms）
+- 新しい効果音 → `AUDIO.se` に名前を足し、鳴らしたい所で `Sound.se("名前")`
+- `-` キーでミュート（ブラウザに保存）。コンソールから `Sound.setVolume({ bgm: 0.3, se: 0.8 })`
+
 ## デプロイ
 
 Render の Static Site（Publish Directory は `.`）。ランキングを使う場合は `server.js` を Web Service として動かす。
