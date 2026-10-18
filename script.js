@@ -29,6 +29,7 @@ const S = {
     WIN: "win",
     WLIST: "wlist", // spectating: list of players who are playing now
     WATCH: "watch", // spectating: watching one of them
+    SETTINGS: "settings", // volume settings (opened from the title screen)
 };
 
 const PLAYER_START = { x: 240, y: 580 }; // x follows the screen center (see layout())
@@ -41,6 +42,13 @@ const MODE_BTN = { x: 90, y: 215, w: 300, h: 74, gap: 12 }; // mode select butto
 const watchBtn = () => ({ x: CX - 70, y: 588, w: 140, h: 30 }); // on the title screen
 const watchRow = (i) => ({ x: CX - 150, y: 120 + i * 52, w: 300, h: 44 }); // one playing person
 const watchBack = () => ({ x: 20, y: H - 46, w: 110, h: 30 });
+// settings screen (x follows the screen center): rows 0 = BGM volume, 1 = sound effect volume, 2 = mute (3 = back, keyboard only)
+const settingsBtn = () => ({ x: 20, y: H - 46, w: 110, h: 30 }); // on the title screen (bottom left)
+const setRow = (i) => ({ x: CX - 150, y: 150 + i * 90, w: 300, h: 72 });
+const setTrack = (i) => {
+    const r = setRow(i);
+    return { x: r.x + 18, y: r.y + 46, w: r.w - 36, h: 8 };
+};
 const modeBtn = (i) => ({
     x: MODE_BTN.x,
     y: MODE_BTN.y + i * (MODE_BTN.h + MODE_BTN.gap),
@@ -668,6 +676,60 @@ function pressGagDone() {
     if (gagStep === 0) pressGagAnswer(true);
 }
 
+/* ---- settings screen: the player sets the volumes here (saved by audio.js) ---- */
+let setIdx = 0; // highlighted row (0 BGM, 1 SE, 2 mute, 3 back)
+let setDrag = -1; // slider being dragged (-1 = none)
+let setPrevAt = 0; // last time the test sound was played
+const SET_STEP = 0.05;
+function openSettings() {
+    setIdx = 0;
+    state = S.SETTINGS;
+}
+// i: 0 = BGM, 1 = sound effects. v: 0..1 (rounded to 5 %)
+function setSlider(i, v) {
+    v = Math.round(Math.max(0, Math.min(1, v)) / SET_STEP) / (1 / SET_STEP); // 5 % steps (no float noise)
+    const key = i === 0 ? "bgm" : "se";
+    if (Math.abs(Sound.getVolume()[key] - v) < 1e-6) return;
+    if (Sound.isMuted()) Sound.setMuted(false); // moving a slider while muted would otherwise be silent
+    Sound.setVolume({ [key]: v });
+    const now = Date.now();
+    if (i === 1 && now - setPrevAt > 120) {
+        setPrevAt = now;
+        Sound.preview(); // let the player hear the new sound effect volume (BGM is already playing)
+    }
+}
+const setStepBy = (i, d) => setSlider(i, Sound.getVolume()[i === 0 ? "bgm" : "se"] + d);
+function sliderAt(p) {
+    for (let i = 0; i < 2; i++) {
+        const t = setTrack(i);
+        if (inButton(p, { x: t.x - 12, y: t.y - 18, w: t.w + 24, h: t.h + 36 })) return i;
+    }
+    return -1;
+}
+function dragSlider(i, p) {
+    const t = setTrack(i);
+    setSlider(i, (p.x - t.x) / t.w);
+}
+function settingsPress() {
+    if (setIdx === 2) Sound.toggleMute();
+    else if (setIdx === 3) state = S.TITLE;
+}
+function onSettingsKey(e) {
+    const k = e.key.toLowerCase();
+    if (k === "escape") state = S.TITLE;
+    if (!e.repeat) {
+        if (k === "w" || k === "arrowup") setIdx = (setIdx + 3) % 4;
+        if (k === "s" || k === "arrowdown") setIdx = (setIdx + 1) % 4;
+    }
+    if (setIdx < 2) {
+        // held keys keep adjusting
+        if (k === "a" || k === "arrowleft") setStepBy(setIdx, -SET_STEP);
+        if (k === "d" || k === "arrowright") setStepBy(setIdx, SET_STEP);
+    } else if (!e.repeat && (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright")) {
+        if (setIdx === 2) Sound.toggleMute();
+    }
+}
+
 // Enter / Space / click: "go to the next screen"
 function advance() {
     if (state === S.TITLE) enterFullscreen(); // go fullscreen when the game starts
@@ -676,6 +738,7 @@ function advance() {
     else if (state === S.TITLE) state = S.MODE;
     else if (state === S.MODE) chooseMode(modeIdx);
     else if (state === S.PRACT) startPractice();
+    else if (state === S.SETTINGS) settingsPress();
     else if (state === S.OVER || state === S.WIN)
         practice ? startPractice() : resetGame();
 }
@@ -783,6 +846,9 @@ window.addEventListener("keydown", (e) => {
             setBoard(boardMode === "hard" ? "normal" : "hard");
         }
     }
+    if (state === S.TITLE && !e.repeat && e.key.toLowerCase() === "o")
+        openSettings();
+    if (state === S.SETTINGS) onSettingsKey(e);
     if (state === S.MODE && !e.repeat) {
         const k = e.key.toLowerCase();
         if (k === "w" || k === "arrowup")
@@ -851,6 +917,13 @@ canvas.addEventListener("click", (e) => {
             }
         });
         if (inButton(p, practBack())) state = S.MODE;
+    } else if (state === S.SETTINGS) {
+        // sliders are handled by the pointer events below
+        if (inButton(p, watchBack())) state = S.TITLE;
+        else if (inButton(p, setRow(2))) {
+            setIdx = 2;
+            Sound.toggleMute();
+        }
     } else if (practice && (state === S.OVER || state === S.WIN)) {
         if (inButton(p, practRetryBtn())) startPractice();
         else if (inButton(p, practMenuBtn())) exitPractice();
@@ -861,6 +934,8 @@ canvas.addEventListener("click", (e) => {
         if (inButton(p, watchBack())) state = S.TITLE;
     } else if (state === S.WATCH) {
         if (inButton(p, watchBack())) openWatchList();
+    } else if (state === S.TITLE && inButton(p, settingsBtn())) {
+        openSettings();
     } else if (
         state === S.TITLE &&
         Net.available() &&
@@ -905,6 +980,24 @@ const endTouch = () => {
 };
 canvas.addEventListener("pointerup", endTouch);
 canvas.addEventListener("pointercancel", endTouch);
+// settings: drag a volume slider (mouse and touch)
+canvas.addEventListener("pointerdown", (e) => {
+    if (state !== S.SETTINGS) return;
+    const p = canvasPoint(e);
+    const i = sliderAt(p);
+    if (i < 0) return;
+    setDrag = setIdx = i;
+    canvas.setPointerCapture(e.pointerId);
+    dragSlider(i, p);
+});
+canvas.addEventListener("pointermove", (e) => {
+    if (setDrag >= 0 && state === S.SETTINGS) dragSlider(setDrag, canvasPoint(e));
+});
+const endSetDrag = () => {
+    setDrag = -1;
+};
+canvas.addEventListener("pointerup", endSetDrag);
+canvas.addEventListener("pointercancel", endSetDrag);
 
 /* ---- helpers used by the patterns ---- */
 const aim = (x, y, target = player) => Math.atan2(target.y - y, target.x - x);
@@ -1302,7 +1395,7 @@ function updatePlay() {
 }
 
 /* ---- audio (see audio.js): BGM follows the screen, menu / result sounds follow state changes ---- */
-const AUDIO_MENU_STATES = [S.TITLE, S.MODE, S.PRACT, S.WLIST, S.WATCH, S.OVER, S.WIN];
+const AUDIO_MENU_STATES = [S.TITLE, S.MODE, S.PRACT, S.WLIST, S.WATCH, S.SETTINGS, S.OVER, S.WIN];
 let audioPrev = null; // the state at the previous frame
 let audioKey = ""; // menu cursor positions at the previous frame
 // Which BGM to play now: names in priority order (the first one that exists is used). [] = silence
@@ -1312,6 +1405,7 @@ function sceneBgm() {
         case S.MODE:
         case S.PRACT:
         case S.WLIST:
+        case S.SETTINGS: // keeps playing the title BGM so the BGM volume can be heard while it is changed
             return ["title"];
         case S.SELECT:
             return ["select", "play"];
@@ -1328,7 +1422,7 @@ function sceneBgm() {
     }
 }
 function audioTick() {
-    const key = `${modeIdx}|${practMode}|${practForm}|${boardMode}`;
+    const key = `${modeIdx}|${practMode}|${practForm}|${boardMode}|${setIdx}`;
     if (state !== audioPrev) {
         if (audioPrev !== null) {
             if (state === S.OVER) Sound.se("gameover");
@@ -1340,7 +1434,7 @@ function audioTick() {
         audioPrev = state;
     } else if (
         key !== audioKey &&
-        (state === S.TITLE || state === S.MODE || state === S.PRACT)
+        (state === S.TITLE || state === S.MODE || state === S.PRACT || state === S.SETTINGS)
     )
         Sound.se("cursor");
     audioKey = key;
@@ -1809,6 +1903,50 @@ function drawWatchList() {
     drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");
 }
 
+function drawSettings() {
+    fillScreen("#10101c");
+    drawText("設定", CX, 90, 30, "#fff");
+    const vol = Sound.getVolume();
+    const muted = Sound.isMuted();
+    const frameRow = (i) => {
+        const r = setRow(i);
+        ctx.fillStyle = "#2a2a3c";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = setIdx === i ? "#6af" : "#445";
+        ctx.lineWidth = setIdx === i ? 3 : 2;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        return r;
+    };
+    [
+        ["BGM の音量", vol.bgm],
+        ["効果音の音量", vol.se],
+    ].forEach(([label, val], i) => {
+        const r = frameRow(i);
+        const t = setTrack(i);
+        drawText(label, r.x + 18, r.y + 30, 16, "#fff", "left");
+        drawText(Math.round(val * 100) + "%", r.x + r.w - 18, r.y + 30, 16, muted ? "#889" : "#8cf", "right");
+        ctx.fillStyle = "#445";
+        ctx.fillRect(t.x, t.y, t.w, t.h);
+        ctx.fillStyle = muted ? "#668" : "#6af";
+        ctx.fillRect(t.x, t.y, t.w * val, t.h);
+        drawCircle(t.x + t.w * val, t.y + t.h / 2, 10, "#fff");
+    });
+    const m = frameRow(2);
+    drawText("ミュート", m.x + 18, m.y + 43, 16, "#fff", "left");
+    drawText(muted ? "ON（音が出ません）" : "OFF", m.x + m.w - 18, m.y + 43, 16, muted ? "#f88" : "#8cf", "right");
+    const bk = watchBack();
+    ctx.fillStyle = "#334";
+    ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
+    if (setIdx === 3) {
+        ctx.strokeStyle = "#6af";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bk.x, bk.y, bk.w, bk.h);
+    }
+    drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");
+    drawText("W/S・↑↓ で選択　A/D・←→ で調整　Enter で切り替え", CX, 470, 13, "#889");
+    drawText("スライダーはドラッグでも動かせます / 「-」キーでもミュートできます", CX, 494, 12, "#667");
+}
+
 // the watched player's screen, redrawn from the latest snapshot sent by the server (already validated there)
 function drawWatch() {
     fillScreen("#10101c");
@@ -1911,6 +2049,9 @@ function drawOverlay() {
         case S.WATCH:
             drawWatch();
             break;
+        case S.SETTINGS:
+            drawSettings();
+            break;
         case S.TITLE:
             fillScreen("#10101c");
             ctx.font = "72px serif";
@@ -1942,6 +2083,15 @@ function drawOverlay() {
             );
             drawScoreboard();
             drawBoardTabs();
+            {
+                const sb = settingsBtn();
+                ctx.fillStyle = "#234";
+                ctx.fillRect(sb.x, sb.y, sb.w, sb.h);
+                ctx.strokeStyle = "#6af";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(sb.x, sb.y, sb.w, sb.h);
+                drawText("⚙ 設定 (O)", sb.x + sb.w / 2, sb.y + 21, 13, "#8cf");
+            }
             if (Net.available() && Net.online !== null) {
                 const wb = watchBtn();
                 ctx.fillStyle = "#234";

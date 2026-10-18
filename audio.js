@@ -21,6 +21,7 @@ const AUDIO = {
     bgmVolume: 0.5, // BGM全体の音量 0〜1
     seVolume: 0.7, // 効果音全体の音量 0〜1
     fadeMs: 400, // BGMが切り替わる時のフェード時間
+    previewSe: ["decide", "hurt", "bossHit", "shot"], // 設定画面で効果音の音量を変えた時に鳴らす音(最初に見つかったもの)
 
     // ---- BGM: audio/bgm/<名前>.<ext> ----
     //  form1〜form7 が無い形態は play が流れます(形態ごとに変えたい時だけ form◯ を置く)
@@ -41,8 +42,8 @@ const AUDIO = {
 
     // ---- 効果音: audio/se/<名前>.<ext> ----
     se: {
-        shot: { vol: 0.25, cooldown: 90 }, // 自機のショット
-        bossHit: { vol: 0.3, cooldown: 80 }, // ショットがボスに当たった
+        shot: { vol: 0.12, cooldown: 90 }, // 自機のショット
+        bossHit: { vol: 0.15, cooldown: 80 }, // ショットがボスに当たった
         hurt: {}, // 被弾
         orb: {}, // 玉を取った
         heal: {}, // ランダムキーの回復
@@ -230,6 +231,12 @@ const Sound = (() => {
         se,
         bgm,
         isMuted: () => muted,
+        getVolume: () => ({ bgm: AUDIO.bgmVolume, se: AUDIO.seVolume }),
+        // 設定画面用: 効果音の音量を確かめる音を1つ鳴らす(ファイルがある音を previewSe の順に探す)
+        preview() {
+            const name = AUDIO.previewSe.find((n) => AUDIO.se[n] && !dead.has("se:" + n));
+            if (name) se(name);
+        },
         setMuted(v) {
             muted = !!v;
             save();
