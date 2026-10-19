@@ -44,6 +44,7 @@ const watchRow = (i) => ({ x: CX - 150, y: 120 + i * 52, w: 300, h: 44 }); // on
 const watchBack = () => ({ x: 20, y: H - 46, w: 110, h: 30 });
 // settings screen (x follows the screen center): rows 0 = BGM volume, 1 = sound effect volume, 2 = mute (3 = back, keyboard only)
 const settingsBtn = () => ({ x: 20, y: H - 46, w: 110, h: 30 }); // on the title screen (bottom left)
+const aiBtn = () => ({ x: W - 130, y: H - 46, w: 110, h: 30 }); // on the title screen (bottom right): the AI plays (ai.js)
 const setRow = (i) => ({ x: CX - 150, y: 150 + i * 90, w: 300, h: 72 });
 const setTrack = (i) => {
     const r = setRow(i);
@@ -128,6 +129,7 @@ function chooseMode(i) {
         state = S.PRACT; // practice: pick the mode and the form first
         return;
     }
+    if (aiPlay && MODES[i].rl) return; // the AI does not play the RL mode (the boss would learn from the AI)
     gameMode = MODES[i];
     if (gameMode.ranked) boardMode = gameMode.id; // after the run, the title screen shows this mode's ranking
     speedMul = gameMode.startSpeedMul;
@@ -542,7 +544,7 @@ function finishRun(cleared) {
         lastRun.parts = Scoring.compute(lastRun.mode, lastRun);
         lastRun.score = lastRun.parts.total;
     }
-    if (practice || !SCORE_ENABLED || usedAdmin || !gameMode.ranked) return; // practice is never recorded
+    if (practice || aiPlay || !SCORE_ENABLED || usedAdmin || !gameMode.ranked) return; // practice and the AI's runs are never recorded
     const token = ++runToken;
     setTimeout(() => {
         if (token === runToken && (state === S.OVER || state === S.WIN))
@@ -732,6 +734,10 @@ function onSettingsKey(e) {
 
 // Enter / Space / click: "go to the next screen"
 function advance() {
+    if (aiPlay && state !== S.TITLE && state !== S.MODE && state !== S.PRACT && state !== S.SETTINGS) {
+        aiCycleSpeed(); // while the AI plays: Space / Enter / tap changes the playback speed
+        return;
+    }
     if (state === S.TITLE) enterFullscreen(); // go fullscreen when the game starts
     if (state === S.GAG)
         pressGagDone(); // Enter only presses "やりました！"; the confirmations need the buttons / arrow keys
@@ -755,6 +761,7 @@ const inButton = (p, b) =>
 
 // Any key that is not a movement key: only the secret key heals (once)
 function onOtherKey(e) {
+    if (aiPlay) return; // the AI is playing: a human key press must not heal it
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const IGNORED_KEYS = [
         "w",
@@ -846,6 +853,11 @@ window.addEventListener("keydown", (e) => {
             setBoard(boardMode === "hard" ? "normal" : "hard");
         }
     }
+    if (state === S.TITLE && !e.repeat && e.key.toLowerCase() === "p") aiOpen();
+    if (aiPlay && e.key === "Escape") {
+        if (state === S.MODE) aiPlay = false; // (the mode screen itself goes back to the title)
+        else if (state !== S.PRACT) aiExit(); // Esc while the AI plays: end it
+    }
     if (state === S.TITLE && !e.repeat && e.key.toLowerCase() === "o")
         openSettings();
     if (state === S.SETTINGS) onSettingsKey(e);
@@ -936,6 +948,8 @@ canvas.addEventListener("click", (e) => {
         if (inButton(p, watchBack())) openWatchList();
     } else if (state === S.TITLE && inButton(p, settingsBtn())) {
         openSettings();
+    } else if (state === S.TITLE && inButton(p, aiBtn())) {
+        aiOpen();
     } else if (
         state === S.TITLE &&
         Net.available() &&
@@ -968,7 +982,7 @@ canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener("pointermove", (e) => {
-    if (!touch || (state !== S.PLAY && state !== S.SELECT)) return;
+    if (aiPlay || !touch || (state !== S.PLAY && state !== S.SELECT)) return;
     const q = canvasPoint(e);
     const dir = invertTimer > 0 ? -1 : 1; // reversed while the orange orb is active
     player.x = touch.px + dir * (q.x - touch.start.x);
@@ -1197,6 +1211,14 @@ function hurtPlayer() {
 }
 
 function movePlayer() {
+    if (aiPlay) {
+        // the AI "presses" the keys (it knows about the reversed controls, so it just says where it wants to go)
+        const sp = aiMove.slow ? PLAYER_SLOW_SPEED : PLAYER_SPEED;
+        player.x += aiMove.dx * sp;
+        player.y += aiMove.dy * sp;
+        clampPlayer();
+        return;
+    }
     const speed =
         (keys.shift ? PLAYER_SLOW_SPEED : PLAYER_SPEED) *
         (invertTimer > 0 ? -1 : 1);
@@ -1449,6 +1471,7 @@ function update() {
     if (keyDebug.t > 0) keyDebug.t--;
     if (invertTimer > 0 && (state === S.PLAY || state === S.SELECT))
         invertTimer--;
+    if (aiPlay) aiThink(); // the AI decides this frame's moves / button presses (ai.js)
     switch (state) {
         case S.SELECT:
             movePlayer();
@@ -1489,6 +1512,7 @@ function update() {
 const SNAP_EVERY = 3; // send the screen every 3 frames (20 times per second)
 const isBroadcasting = () =>
     !practice &&
+    !aiPlay && // the AI's play is not offered to spectators as a player
     (state === S.SELECT ||
         state === S.PLAY ||
         state === S.GAG ||
@@ -2091,6 +2115,12 @@ function drawOverlay() {
                 ctx.lineWidth = 2;
                 ctx.strokeRect(sb.x, sb.y, sb.w, sb.h);
                 drawText("⚙ 設定 (O)", sb.x + sb.w / 2, sb.y + 21, 13, "#8cf");
+                const ab = aiBtn();
+                ctx.fillStyle = "#234";
+                ctx.fillRect(ab.x, ab.y, ab.w, ab.h);
+                ctx.strokeStyle = "#6af";
+                ctx.strokeRect(ab.x, ab.y, ab.w, ab.h);
+                drawText("🤖 AIプレイ (P)", ab.x + ab.w / 2, ab.y + 21, 13, "#8cf");
             }
             if (Net.available() && Net.online !== null) {
                 const wb = watchBtn();
@@ -2110,7 +2140,7 @@ function drawOverlay() {
             break;
         case S.MODE:
             fillScreen("#10101c");
-            drawText("モードを選んでください", CX, 190, 28, "#fff");
+            drawText(aiPlay ? "AIが遊ぶモードを選んでください" : "モードを選んでください", CX, 190, aiPlay ? 24 : 28, aiPlay ? "#8cf" : "#fff");
             MODE_MENU.forEach((m, i) => {
                 const b = modeBtn(i);
                 const sel = i === modeIdx;
@@ -2129,7 +2159,9 @@ function drawOverlay() {
                 14,
                 "#889",
             );
-            if (modeIdx === PRACTICE_IDX)
+            if (aiPlay && MODE_MENU[modeIdx].rl)
+                drawText("※RLモードはAIプレイでは選べません", CX, 590, 12, "#f88");
+            else if (modeIdx === PRACTICE_IDX)
                 drawText(
                     "※練習モードはランキングに登録されません",
                     CX,
@@ -2319,6 +2351,7 @@ function draw() {
         drawText("👥 " + Net.online, W - 8, 12, 11, "#8cf", "right");
     if (keyDebug.t > 0)
         drawText(keyDebug.text, W - 6, H - 26, 11, "#8c8", "right");
+    if (aiPlay) aiDraw(); // "AI playing" info (ai.js)
 }
 
 /* ---- screen size ---- */
@@ -2374,7 +2407,7 @@ resetGame();
 let accumulator = 0,
     lastTime = performance.now();
 function loop(now) {
-    accumulator += Math.min(100, now - lastTime);
+    accumulator += Math.min(100, now - lastTime) * (aiPlay ? aiSpeed : 1); // the AI's play can be sped up
     lastTime = now;
     while (accumulator >= STEP_MS) {
         update();
