@@ -111,6 +111,9 @@ const MODES = [
         redDmgMul: 3,
         ranked: true,
         rowWave: true, // the orange wall: flow -> all rows stop -> all rows drop fast (see WALL_STOP_FRAMES)
+        // the orange wall changes how it moves from one appearance to the next (see wallIsWave):
+        // 1st = rowWave (as above), 2nd = the 通常モード way, 3rd and later = random every time
+        wallVariety: true,
     },
     {
         id: "normal",
@@ -614,6 +617,17 @@ const WALL_EVENTS = [
 let wallList = []; // the rows on the screen, the oldest (lowest) first: { y, idx, f, mode: flow|stop|dash, stopStart, dashStart }
 let wallStopY = 380; // where the next stop happens
 let wallRows = 0; // rows fired so far in this pattern
+let wallCount = 0; // orange walls started in this run (reset by resetGame); only used when the mode has wallVariety
+let wallWave = true; // how the wall on the screen moves: true = rowWave style, false = 通常モード style (wallVariety modes)
+// Does the wall move the 理不尽 way (rows flow -> stop -> drop together, true) or the 通常モード way (the whole wall
+// speeds up / slows down together, false)? Normally that is the mode's rowWave; with wallVariety it is decided each
+// time a wall starts (wallPickStyle).
+const wallIsWave = () => (gameMode.wallVariety ? wallWave : gameMode.rowWave);
+function wallPickStyle() {
+    if (!gameMode.wallVariety) return;
+    wallCount++;
+    wallWave = wallCount === 1 ? true : wallCount === 2 ? false : Math.random() < 0.5;
+}
 let wallStepFrame = -1; // the frame in which the rows were last moved (they move once per frame)
 // 通常モード (mode.rowWave = false): the WHOLE wall shares one speed wave and stops / dashes together
 // (the old behaviour), so no row is ever faster or slower than another.
@@ -674,7 +688,7 @@ function wallStepOnce() {
     const base = WALL_SPEED * speedMul;
     const cap = WALL_MAX_V / base; // speed cap (see WALL_MAX_V)
     let frontY = Infinity; // y of the row in front of this one
-    const rowWave = gameMode.rowWave; // false: every row gets the same factor (通常モード)
+    const rowWave = wallIsWave(); // false: every row gets the same factor (通常モード)
     const syncF = rowWave ? 1 : wallSyncFactor();
     if (rowWave) wallGroupStep();
     for (const r of wallList) {
@@ -705,6 +719,7 @@ function newWallRow() {
 // The wall pattern as a function: dir = 1 sweeps the gap to the right first, dir = -1 (mirrored) to the left first.
 function wallRun(t, dir) {
     if (t === 0) {
+        wallPickStyle(); // 1st wall of the run: as is / 2nd: 通常モード way / after that: random
         wallRows = 0;
         if (!bullets.some((b) => b.type === "wall")) wallList = []; // forget rows whose bullets are gone
         wallEvent = null;
@@ -717,8 +732,8 @@ function wallRun(t, dir) {
     const newest = wallList[wallList.length - 1];
     if (newest && newest.y < -8 + WALL_ROW_SPACING) return; // the next row is fired when the last one has moved far enough
     // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
-    const slope = gameMode.rowWave ? WALL_GAP_SLOPE_DASH : WALL_GAP_SLOPE;
-    const amp = gameMode.rowWave ? WALL_GAP_AMP_DASH : 150;
+    const slope = wallIsWave() ? WALL_GAP_SLOPE_DASH : WALL_GAP_SLOPE;
+    const amp = wallIsWave() ? WALL_GAP_AMP_DASH : 150;
     const gap = CX + dir * Math.sin(wallRows * slope * (480 / W)) * amp * (W / 480);
     const shift = wallRows % 2 ? 12 : 0;
     const row = newWallRow();

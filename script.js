@@ -201,6 +201,8 @@ function resetGame() {
     detour = false;
     detourSave = null;
     fakeCount = 0;
+    wallCount = 0; // the first orange wall of a run moves the original way again
+    wallWave = true;
     patIdx = 0;
     patTime = 0;
     frame = 0;
