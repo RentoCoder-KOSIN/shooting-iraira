@@ -7,16 +7,19 @@
  *    - 玉の選択画面では、いちばん得な玉(赤 > 紫 > 青 > 橙 > 緑)をとりにいきます
  *    - ギャグ画面は、ちゃんとボタンを押して進めます
  *    - ゲームオーバー / クリアのあとは、少し待ってから同じモードで自動的にやり直します
- *  ランキングには登録されません。RLモードは、ボスの学習データが汚れるので選べません。
+ *  ランキングには登録されません。RLモードも遊べて、ボスはAIの動きから学習します
+ *  (人が遊んだ時と同じように、学習結果はこのブラウザに保存され、サーバーがあれば「みんなのボス」にも送られます)。
+ *  学習させたくない時は、下の AI_BOSS_LEARNS を false にしてください。
  *
- *  操作: Esc で終了 / Space・Enter・タップで再生速度(×1 → ×2 → ×4)
+ *  操作: Esc で終了 / Space・Enter・タップで再生速度(×1 → ×2 → ×4 → ×8 → ×16)
  *
  *  このファイルは script.js より先に読み込みます(script.js の変数は、実行時に参照します)。
  * ========================================================================== */
 
 let aiPlay = false; // true while the AI is playing
 let aiSpeed = 1; // playback speed (see AI_SPEEDS)
-const AI_SPEEDS = [1, 2, 4];
+const AI_SPEEDS = [1, 2, 4, 8, 16]; // ×8 / ×16 are for teaching the boss quickly (RL mode)
+const AI_BOSS_LEARNS = true; // RL mode: the boss learns from the AI's play (false = the boss is frozen while the AI plays)
 const aiMove = { dx: 0, dy: 0, slow: false }; // what the AI "presses" this frame (movePlayer() reads it)
 const aiStats = { runs: 0, clears: 0, bestForm: 0, bestMs: 0 };
 
@@ -28,8 +31,13 @@ let aiPrevAct = null; // the action chosen at the last planning (to avoid jitter
 let aiPlanAt = -99; // frame of the last planning
 
 /* ---- start / stop (called from script.js) ---- */
+// RL mode: by default the boss learns from the AI's play like from a human (AI_BOSS_LEARNS = false freezes it)
+function aiSetPlay(on) {
+    aiPlay = on;
+    if (typeof RL !== "undefined" && RL.setReadOnly) RL.setReadOnly(on && !AI_BOSS_LEARNS);
+}
 function aiOpen() {
-    aiPlay = true;
+    aiSetPlay(true);
     aiSpeed = 1;
     aiPrevState = null;
     aiCounted = false;
@@ -38,7 +46,7 @@ function aiOpen() {
     state = S.MODE; // choose the mode the AI plays
 }
 function aiExit() {
-    aiPlay = false;
+    aiSetPlay(false);
     aiSpeed = 1;
     resetGame(); // back to the title
 }
@@ -351,5 +359,11 @@ function aiDraw() {
         12,
         "#8cf",
     );
-    drawText("Esc: 終了　Space・タップ: 速度", CX, H - 12, 11, "#789");
+    drawText(
+        (gameMode.rl && AI_BOSS_LEARNS ? "ボス学習中　" : "") + "Esc: 終了　Space・タップ: 速度",
+        CX,
+        H - 12,
+        11,
+        gameMode.rl && AI_BOSS_LEARNS ? "#8c8" : "#789",
+    );
 }

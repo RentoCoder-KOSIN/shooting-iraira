@@ -129,7 +129,6 @@ function chooseMode(i) {
         state = S.PRACT; // practice: pick the mode and the form first
         return;
     }
-    if (aiPlay && MODES[i].rl) return; // the AI does not play the RL mode (the boss would learn from the AI)
     gameMode = MODES[i];
     if (gameMode.ranked) boardMode = gameMode.id; // after the run, the title screen shows this mode's ranking
     speedMul = gameMode.startSpeedMul;
@@ -855,7 +854,7 @@ window.addEventListener("keydown", (e) => {
     }
     if (state === S.TITLE && !e.repeat && e.key.toLowerCase() === "p") aiOpen();
     if (aiPlay && e.key === "Escape") {
-        if (state === S.MODE) aiPlay = false; // (the mode screen itself goes back to the title)
+        if (state === S.MODE) aiSetPlay(false); // (the mode screen itself goes back to the title)
         else if (state !== S.PRACT) aiExit(); // Esc while the AI plays: end it
     }
     if (state === S.TITLE && !e.repeat && e.key.toLowerCase() === "o")
@@ -2160,7 +2159,13 @@ function drawOverlay() {
                 "#889",
             );
             if (aiPlay && MODE_MENU[modeIdx].rl)
-                drawText("※RLモードはAIプレイでは選べません", CX, 590, 12, "#f88");
+                drawText(
+                    AI_BOSS_LEARNS ? "※ボスはAIの動きから学習します（みんなのボスにも反映）" : "※ボスは学習しません",
+                    CX,
+                    590,
+                    12,
+                    AI_BOSS_LEARNS ? "#fc3" : "#8cf",
+                );
             else if (modeIdx === PRACTICE_IDX)
                 drawText(
                     "※練習モードはランキングに登録されません",

@@ -275,6 +275,7 @@ const RL = (() => {
     let lastEps = 0;
     let saveAt = 0;
     let learnOn = true; // tools/train-rl.js can freeze the learning to compare policies
+    let readOnly = false; // the AI plays (ai.js): the boss does not learn, and nothing is saved or uploaded
     let epsFixed = null; // ... and fix the exploration
     let rewardSum = 0; // total reward collected (for the tool)
     const usage = {}; // action id -> times chosen (for tools/train-rl.js)
@@ -329,7 +330,7 @@ const RL = (() => {
         return { fine: form * N_STATE + (((px * 3 + py) * 3 + pv) * 3 + ph) * 3 + bl, coarse: form * N_COARSE + (px * 3 + pv) * 3 + bl };
     }
     const eps = () => (epsFixed !== null ? epsFixed : Math.max(EPS_MIN, EPS_START * Math.exp(-stats.byForm[form] / EPS_DECAY)));
-    const learning = () => learnOn && (typeof usedAdmin === "undefined" || !usedAdmin); // admin runs teach nothing
+    const learning = () => !readOnly && learnOn && (typeof usedAdmin === "undefined" || !usedAdmin); // admin runs teach nothing
 
     /* ---- reward bookkeeping (every frame) ---- */
     // every reward goes to both windows (attack decision / movement decision) and to the total
@@ -455,9 +456,11 @@ const RL = (() => {
         const act = ACTIONS[a];
         recent.push(a);
         if (recent.length > 6) recent.shift();
-        stats.decisions++;
-        stats.byForm[form]++;
-        outDec[form]++;
+        if (!readOnly) {
+            stats.decisions++;
+            stats.byForm[form]++;
+            outDec[form]++;
+        }
         usage[act.id] = (usage[act.id] || 0) + 1;
         lastEps = eps();
         label = act.name;
@@ -612,7 +615,7 @@ const RL = (() => {
     }
     // send what the boss learned since the last upload (force: leaving the page, no waiting)
     async function upload(force) {
-        if (!sharedOn() || uploading || outCount === 0) return;
+        if (readOnly || !sharedOn() || uploading || outCount === 0) return;
         if (!force && Date.now() - lastUpload < UPLOAD_MIN_MS) return;
         // take up to UPLOAD_MAX_ENTRIES entries; the rest stays for the next time
         const part = { t: {}, c: {}, m: {} };
@@ -706,6 +709,7 @@ const RL = (() => {
         return true;
     }
     function save(force) {
+        if (readOnly) return;
         try {
             localStorage.setItem(STORE_KEY, JSON.stringify(exportData()));
         } catch (_) {}
@@ -755,6 +759,8 @@ const RL = (() => {
         reset, update, moveBoss, onHit, save, clear, hud, exportData, importData, sync,
         // for tools/train-rl.js
         setLearning(on, epsilon = null) { learnOn = on; epsFixed = epsilon; },
+        // true while the AI plays (ai.js): the boss still plays normally, but learns / saves / uploads nothing
+        setReadOnly(on) { readOnly = !!on; },
         _internals: { ACTIONS, MOVES, usage, get rewardSum() { return rewardSum; }, get stats() { return stats; }, get calm() { return calm; } },
     };
 })();
