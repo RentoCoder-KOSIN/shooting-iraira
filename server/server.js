@@ -64,17 +64,20 @@ function parseScore(body) {
     if (cleared && (form !== n || totalMs < MIN_CLEAR_MS[mode]))
         return bad("bad clear");
     // HP left: a CLEAR keeps at least 1 HP, every other run ended with 0
-    if (!Number.isInteger(hp) || hp < 0 || hp > Scoring.MAX_HP) return bad("bad hp");
+    if (!Number.isInteger(hp) || hp < 0 || hp > Scoring.MAX_HP)
+        return bad("bad hp");
     if (cleared ? hp < 1 : hp !== 0) return bad("bad hp");
 
     // splits: cumulative times at which each form was defeated (null = not defeated)
-    if (!Array.isArray(b.splits) || b.splits.length !== n) return bad("bad splits");
+    if (!Array.isArray(b.splits) || b.splits.length !== n)
+        return bad("bad splits");
     const defeated = cleared ? n : form - 1; // forms before the reached one are defeated
     let prev = 0;
     for (let i = 0; i < n; i++) {
         const v = b.splits[i];
         if (i < defeated) {
-            if (!Number.isInteger(v) || v < prev || v > totalMs) return bad("bad splits");
+            if (!Number.isInteger(v) || v < prev || v > totalMs)
+                return bad("bad splits");
             prev = v;
         } else if (v !== null) return bad("bad splits");
     }
@@ -87,8 +90,26 @@ function parseScore(body) {
         .trim();
     name = [...name].slice(0, NAME_MAX).join("");
     if (!name) name = "名無し";
-    const score = Scoring.compute(mode, { cleared, form, formMs, splits, hp }).total;
-    return { score: { mode, name, form, cleared, formMs, totalMs, splits, hp, score } };
+    const score = Scoring.compute(mode, {
+        cleared,
+        form,
+        formMs,
+        splits,
+        hp,
+    }).total;
+    return {
+        score: {
+            mode,
+            name,
+            form,
+            cleared,
+            formMs,
+            totalMs,
+            splits,
+            hp,
+            score,
+        },
+    };
 }
 
 /* ---------- storage: PostgreSQL ---------- */
@@ -120,12 +141,18 @@ async function createPgStore(url) {
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`);
     // added later: the time each form was defeated (old rows keep NULL)
-    await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS splits JSONB");
+    await pool.query(
+        "ALTER TABLE scores ADD COLUMN IF NOT EXISTS splits JSONB",
+    );
     // added later: one ranking per mode + score-based ranking. Old rows keep NULL mode (= hidden, not deleted)
     await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS mode TEXT");
     await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS hp INTEGER");
-    await pool.query("ALTER TABLE scores ADD COLUMN IF NOT EXISTS score INTEGER");
-    await pool.query("CREATE INDEX IF NOT EXISTS scores_mode_score ON scores (mode, score DESC)");
+    await pool.query(
+        "ALTER TABLE scores ADD COLUMN IF NOT EXISTS score INTEGER",
+    );
+    await pool.query(
+        "CREATE INDEX IF NOT EXISTS scores_mode_score ON scores (mode, score DESC)",
+    );
     // small key/value table (the shared boss AI of the RLモード lives here)
     await pool.query(`
         CREATE TABLE IF NOT EXISTS kv (
@@ -155,10 +182,23 @@ async function createPgStore(url) {
         },
         async add(s) {
             // rank = number of records of the same mode that stay above this one (+1); earlier records win ties
-            const r = await pool.query("SELECT COUNT(*)::int AS n FROM scores WHERE mode = $1 AND score >= $2::int", [s.mode, s.score]);
+            const r = await pool.query(
+                "SELECT COUNT(*)::int AS n FROM scores WHERE mode = $1 AND score >= $2::int",
+                [s.mode, s.score],
+            );
             await pool.query(
                 "INSERT INTO scores (mode, name, form, cleared, form_ms, total_ms, splits, hp, score) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)",
-                [s.mode, s.name, s.form, s.cleared, s.formMs, s.totalMs, JSON.stringify(s.splits), s.hp, s.score],
+                [
+                    s.mode,
+                    s.name,
+                    s.form,
+                    s.cleared,
+                    s.formMs,
+                    s.totalMs,
+                    JSON.stringify(s.splits),
+                    s.hp,
+                    s.score,
+                ],
             );
             return r.rows[0].n + 1;
         },
@@ -186,14 +226,17 @@ function createFileStore(file, kvFile) {
     } catch (_) {}
     // records of one mode, best score first (the sort is stable: earlier records stay above on ties).
     // Old records have no mode and are ignored.
-    const ofMode = (mode) => rows.filter((r) => r.mode === mode).sort((a, b) => b.score - a.score);
+    const ofMode = (mode) =>
+        rows.filter((r) => r.mode === mode).sort((a, b) => b.score - a.score);
     return {
         kind: "json-file",
         async top(mode, n) {
             return ofMode(mode).slice(0, n);
         },
         async add(s) {
-            const rank = rows.filter((r) => r.mode === s.mode && r.score >= s.score).length + 1;
+            const rank =
+                rows.filter((r) => r.mode === s.mode && r.score >= s.score)
+                    .length + 1;
             rows.push(s);
             fs.writeFileSync(file, JSON.stringify(rows));
             return rank;
@@ -256,28 +299,46 @@ function createApp(store, rl) {
 
     // Only the game files in public/ are served (not server/ / package.json / data/)
     const PUBLIC_DIR = path.join(__dirname, "..", "public");
-<<<<<<< HEAD
-    const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js", "audio.js", "ai.js"];
-    app.get("/", (req, res) =>
-        res.sendFile(path.join(PUBLIC_DIR, "index.html")),
-    );
-=======
     const SITE_DIR = path.join(__dirname, "..", "site");
-    const FILES = ["style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js", "audio.js", "ai.js"];
+    const FILES = [
+        "style.css",
+        "script.js",
+        "config.js",
+        "scoring.js",
+        "rl.js",
+        "rl-pretrained.js",
+        "net.js",
+        "audio.js",
+        "ai.js",
+    ];
     app.get("/", (req, res) => res.sendFile(path.join(SITE_DIR, "index.html"))); // 紹介ページ
-    app.use((req, res, next) => (req.path === "/play/" ? res.redirect(301, "/play") : next())); // 末尾スラッシュだと相対パスが壊れるため
-    app.get("/play", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html"))); // ゲーム本体
-    app.use("/site", express.static(SITE_DIR, { fallthrough: true, index: false })); // 紹介ページの css / js
->>>>>>> 5d70950 (organized)
+    app.use((req, res, next) =>
+        req.path === "/play/" ? res.redirect(301, "/play") : next(),
+    ); // 末尾スラッシュだと相対パスが壊れるため
+    app.get("/play", (req, res) =>
+        res.sendFile(path.join(PUBLIC_DIR, "index.html")),
+    ); // ゲーム本体
+    app.use(
+        "/site",
+        express.static(SITE_DIR, { fallthrough: true, index: false }),
+    ); // 紹介ページの css / js
     for (const f of FILES)
         app.get("/" + f, (req, res) => res.sendFile(path.join(PUBLIC_DIR, f)));
     app.get("/favicon.ico", (req, res) => res.status(204).end());
     // BGM / sound effects (audio/bgm/*.mp3, audio/se/*.mp3). Missing files simply answer 404 and the game stays silent
-    app.use("/audio", express.static(path.join(PUBLIC_DIR, "audio"), { fallthrough: true, index: false }));
+    app.use(
+        "/audio",
+        express.static(path.join(PUBLIC_DIR, "audio"), {
+            fallthrough: true,
+            index: false,
+        }),
+    );
 
     app.get("/api/scores", async (req, res) => {
         try {
-            const mode = MODE_IDS.includes(req.query.mode) ? req.query.mode : "hard";
+            const mode = MODE_IDS.includes(req.query.mode)
+                ? req.query.mode
+                : "hard";
             res.set("Cache-Control", "no-store");
             res.json({ scores: await store.top(mode, TOP_N) });
         } catch (err) {
@@ -300,7 +361,11 @@ function createApp(store, rl) {
             try {
                 const rank = await store.add(parsed.score);
                 res.set("Cache-Control", "no-store");
-                res.json({ rank, score: parsed.score.score, scores: await store.top(parsed.score.mode, TOP_N) });
+                res.json({
+                    rank,
+                    score: parsed.score.score,
+                    scores: await store.top(parsed.score.mode, TOP_N),
+                });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ error: "server error" });
@@ -311,30 +376,52 @@ function createApp(store, rl) {
     // the shared boss AI (RLモード): download it / teach it / admin reset
     if (rl) {
         app.get("/api/rl", (req, res) => {
-            if (!rl.ready()) return res.status(404).json({ error: "shared learning is off" });
+            if (!rl.ready())
+                return res
+                    .status(404)
+                    .json({ error: "shared learning is off" });
             const { json, etag } = rl.snapshot();
             res.set({ "Cache-Control": "no-cache", ETag: etag });
             if (req.get("If-None-Match") === etag) return res.status(304).end();
             res.type("application/json").send(json);
         });
         app.post("/api/rl", express.json({ limit: "96kb" }), (req, res) => {
-            if (rateLimited(req.ip, RL_LIMIT, "rl")) return res.status(429).json({ error: "too many uploads" });
+            if (rateLimited(req.ip, RL_LIMIT, "rl"))
+                return res.status(429).json({ error: "too many uploads" });
             const r = rl.merge(req.body);
             if (!r.ok) return res.status(r.status).json({ error: r.error });
             res.set("Cache-Control", "no-store");
             res.json({ ok: true });
         });
-        app.post("/api/rl/reset", express.json({ limit: "1kb" }), (req, res) => {
-            if (rateLimited(req.ip, RESET_LIMIT, "reset"))
-                return res.status(429).json({ error: "試行が多すぎます。少し待ってください" });
-            const given = req.body && req.body.password;
-            if (typeof given !== "string" || !safeEqual(given, ADMIN_PASSWORD))
-                return res.status(403).json({ error: "パスワードが違います" });
-            if (!rl.reset()) return res.status(404).json({ error: "shared learning is off" });
-            console.warn("[rl] the shared boss was reset by admin (" + req.ip + ")");
-            res.set("Cache-Control", "no-store");
-            res.json({ ok: true });
-        });
+        app.post(
+            "/api/rl/reset",
+            express.json({ limit: "1kb" }),
+            (req, res) => {
+                if (rateLimited(req.ip, RESET_LIMIT, "reset"))
+                    return res
+                        .status(429)
+                        .json({
+                            error: "試行が多すぎます。少し待ってください",
+                        });
+                const given = req.body && req.body.password;
+                if (
+                    typeof given !== "string" ||
+                    !safeEqual(given, ADMIN_PASSWORD)
+                )
+                    return res
+                        .status(403)
+                        .json({ error: "パスワードが違います" });
+                if (!rl.reset())
+                    return res
+                        .status(404)
+                        .json({ error: "shared learning is off" });
+                console.warn(
+                    "[rl] the shared boss was reset by admin (" + req.ip + ")",
+                );
+                res.set("Cache-Control", "no-store");
+                res.json({ ok: true });
+            },
+        );
     }
 
     // admin: delete every record
@@ -351,7 +438,9 @@ function createApp(store, rl) {
                 return res.status(403).json({ error: "パスワードが違います" });
             try {
                 await store.clear();
-                console.warn("[scores] all records were reset by admin (" + req.ip + ")");
+                console.warn(
+                    "[scores] all records were reset by admin (" + req.ip + ")",
+                );
                 res.set("Cache-Control", "no-store");
                 res.json({ ok: true, scores: [] });
             } catch (err) {
@@ -377,7 +466,10 @@ async function main() {
     const url = process.env.DATABASE_URL;
     const store = url
         ? await createPgStore(url)
-        : createFileStore(path.join(__dirname, "..", "data", "scores.json"), path.join(__dirname, "..", "data", "rl-model.json"));
+        : createFileStore(
+              path.join(__dirname, "..", "data", "scores.json"),
+              path.join(__dirname, "..", "data", "rl-model.json"),
+          );
     if (!url)
         console.warn(
             "[scores] DATABASE_URL is not set: using scores.json (the data is lost when Render restarts)",
@@ -402,4 +494,10 @@ if (require.main === module) {
         process.exit(1);
     });
 }
-module.exports = { parseScore, createApp, createFileStore, createPgStore, createRlModel };
+module.exports = {
+    parseScore,
+    createApp,
+    createFileStore,
+    createPgStore,
+    createRlModel,
+};

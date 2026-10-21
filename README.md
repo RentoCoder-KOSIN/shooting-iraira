@@ -10,10 +10,7 @@ shooting-iraira/
 │  ├─ index.html  style.css
 │  ├─ script.js  config.js  scoring.js  rl.js  rl-pretrained.js  ai.js  net.js  audio.js
 │  └─ audio/          BGM・効果音（bgm/ se/）
-<<<<<<< HEAD
-=======
 ├─ site/              紹介ページ(Bootstrap)  /  で表示。css/ js/
->>>>>>> 5d70950 (organized)
 ├─ server/            ランキング・RL共有・観戦のサーバー（Node.js）
 │  └─ server.js  realtime.js  rlmodel.js
 ├─ data/              サーバーのローカル保存（DATABASE_URL なしのとき）
@@ -23,11 +20,8 @@ shooting-iraira/
 └─ README.md
 ```
 
-<<<<<<< HEAD
-=======
 **URL**: `/` が紹介ページ、`/play` がゲーム本体です。
 
->>>>>>> 5d70950 (organized)
 `scoring.js` はブラウザとサーバーの両方が使います（サーバーは `../public/scoring.js` を読む）。
 
 ## モード
