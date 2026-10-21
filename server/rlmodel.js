@@ -40,7 +40,7 @@ const KEY_RE = /^(\d{1,5}):(\d{1,3})$/;
 // the model shipped with the game (rl-pretrained.js is `const RL_PRETRAINED = {...};`)
 function loadSeed() {
     try {
-        const text = fs.readFileSync(path.join(__dirname, "rl-pretrained.js"), "utf8");
+        const text = fs.readFileSync(path.join(__dirname, "..", "public", "rl-pretrained.js"), "utf8");
         const from = text.indexOf("{", text.indexOf("RL_PRETRAINED"));
         const model = JSON.parse(text.slice(from, text.lastIndexOf("}") + 1));
         if (!model || typeof model.sig !== "string" || !model.t) return null;

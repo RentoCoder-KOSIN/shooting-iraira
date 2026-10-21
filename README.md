@@ -2,6 +2,25 @@
 
 世界一イライラするゲーム（html / css / js）。ランキング用サーバーは `server.js`。
 
+## フォルダ構成
+
+```
+shooting-iraira/
+├─ public/            ブラウザに配信するゲーム本体
+│  ├─ index.html  style.css
+│  ├─ script.js  config.js  scoring.js  rl.js  rl-pretrained.js  ai.js  net.js  audio.js
+│  └─ audio/          BGM・効果音（bgm/ se/）
+├─ server/            ランキング・RL共有・観戦のサーバー（Node.js）
+│  └─ server.js  realtime.js  rlmodel.js
+├─ data/              サーバーのローカル保存（DATABASE_URL なしのとき）
+│  └─ rl-model.json   （scores.json はここに作られる。Git管理外）
+├─ tools/             検証・訓練ツール（smoke-test / train-rl / pull-rl）
+├─ package.json  render.yaml
+└─ README.md
+```
+
+`scoring.js` はブラウザとサーバーの両方が使います（サーバーは `../public/scoring.js` を読む）。
+
 ## モード
 
 | モード | 内容 | ランキング |
@@ -101,4 +120,4 @@ audio/
 
 ## デプロイ
 
-Render の Static Site（Publish Directory は `.`）。ランキングを使う場合は `server.js` を Web Service として動かす。
+Render の Web Service（`render.yaml`）。Build は `npm install`、Start は `npm start`（= `node server/server.js`）。

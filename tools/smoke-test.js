@@ -6,7 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const ROOT = path.join(__dirname, "..");
+const ROOT = path.join(__dirname, "..", "public");
 
 function dummy() {
     const store = {};
@@ -29,7 +29,7 @@ function dummy() {
 const listeners = {};
 const saved = {};
 const sandbox = {
-    sanitizeSnap: require("../realtime.js").sanitizeSnap, // server-side validation of spectator snapshots
+    sanitizeSnap: require("../server/realtime.js").sanitizeSnap, // server-side validation of spectator snapshots
     console, performance: { now: () => 0 }, requestAnimationFrame: () => 0, setTimeout: () => 0, clearTimeout: () => 0,
     fetch: () => Promise.reject(new Error("offline")), innerWidth: 480, innerHeight: 640, devicePixelRatio: 1,
     addEventListener(t, f) { (listeners[t] = listeners[t] || []).push(f); },

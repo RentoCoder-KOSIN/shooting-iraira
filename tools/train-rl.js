@@ -20,7 +20,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const ROOT = path.join(__dirname, "..");
+const ROOT = path.join(__dirname, "..", "public");
 const mode = process.argv[2] || "eval";
 const rounds = Number(process.argv[3]) || 3;
 

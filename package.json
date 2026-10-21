@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "世界一イライラするゲーム (game + ranking server)",
-  "main": "server.js",
+  "main": "server/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server/server.js"
   },
   "engines": {
     "node": ">=18"

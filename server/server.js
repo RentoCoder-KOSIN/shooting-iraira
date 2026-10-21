@@ -38,7 +38,7 @@ const path = require("path");
 const PORT = process.env.PORT || 3000;
 const TOP_N = 10;
 const NAME_MAX = 12;
-const Scoring = require("./scoring.js"); // the score formula (shared with the browser)
+const Scoring = require("../public/scoring.js"); // the score formula (shared with the browser)
 const { createRlModel } = require("./rlmodel.js"); // the boss AI everybody teaches
 const MODE_IDS = Object.keys(Scoring.MODES); // "hard", "normal"
 const MAX_MS = 6 * 60 * 60 * 1000; // no run is longer than 6 hours
@@ -254,16 +254,17 @@ function createApp(store, rl) {
     app.set("trust proxy", 1); // behind Render's proxy: req.ip is the real client
     app.disable("x-powered-by");
 
-    // Only the game files are public (not server.js / package.json / scores.json)
+    // Only the game files in public/ are served (not server/ / package.json / data/)
+    const PUBLIC_DIR = path.join(__dirname, "..", "public");
     const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js", "audio.js", "ai.js"];
     app.get("/", (req, res) =>
-        res.sendFile(path.join(__dirname, "index.html")),
+        res.sendFile(path.join(PUBLIC_DIR, "index.html")),
     );
     for (const f of FILES)
-        app.get("/" + f, (req, res) => res.sendFile(path.join(__dirname, f)));
+        app.get("/" + f, (req, res) => res.sendFile(path.join(PUBLIC_DIR, f)));
     app.get("/favicon.ico", (req, res) => res.status(204).end());
     // BGM / sound effects (audio/bgm/*.mp3, audio/se/*.mp3). Missing files simply answer 404 and the game stays silent
-    app.use("/audio", express.static(path.join(__dirname, "audio"), { fallthrough: true, index: false }));
+    app.use("/audio", express.static(path.join(PUBLIC_DIR, "audio"), { fallthrough: true, index: false }));
 
     app.get("/api/scores", async (req, res) => {
         try {
@@ -367,7 +368,7 @@ async function main() {
     const url = process.env.DATABASE_URL;
     const store = url
         ? await createPgStore(url)
-        : createFileStore(path.join(__dirname, "scores.json"), path.join(__dirname, "rl-model.json"));
+        : createFileStore(path.join(__dirname, "..", "data", "scores.json"), path.join(__dirname, "..", "data", "rl-model.json"));
     if (!url)
         console.warn(
             "[scores] DATABASE_URL is not set: using scores.json (the data is lost when Render restarts)",

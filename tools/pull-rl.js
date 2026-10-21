@@ -25,7 +25,7 @@ fetch(url + "/api/rl")
         const text =
             "/* ボスAIの初期状態 (みんなで育てたものを " + new Date().toISOString().slice(0, 10) + " に " + url + " から取得)。ブラウザ内の学習はこれを土台にさらに続く */\n" +
             "const RL_PRETRAINED = " + JSON.stringify(model) + ";\n";
-        fs.writeFileSync(path.join(__dirname, "..", "rl-pretrained.js"), text);
+        fs.writeFileSync(path.join(__dirname, "..", "public", "rl-pretrained.js"), text);
         console.log("rl-pretrained.js に書き出しました (" + Math.round(text.length / 1024) + " KB, 学習 " + (model.stats ? model.stats.decisions : "?") + " 手)");
     })
     .catch((err) => {
