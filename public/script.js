@@ -78,6 +78,7 @@ let detourSave; // { hp, max, patIdx } of the form to return to after the detour
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
 let frame; // global frame counter
 let selectMap = [...SELECT_ORBS]; // effect of each selection orb (shuffled at every selection after form 1)
+let lastOrbSpawnFrame = -9999; // frame of the last orb that fell (see ORB_MIN_GAP)
 let lastOrbColor = null; // the last colour (SELECT_ORBS id) that fell from the sky: the base of the next selection
 let selectRandom = false; // false: the selection after form 1 (original behavior), true: the selections after form 2 and later
 let fakeTimer, clearTimer, gagText, tauntText;
@@ -208,6 +209,7 @@ function resetGame() {
     patIdx = 0;
     patTime = 0;
     frame = 0;
+    lastOrbSpawnFrame = -9999;
     runFrames = 0;
     formFrames = 0;
     formSplits = Array(formCount()).fill(null);
@@ -1025,6 +1027,9 @@ const aim = (x, y, target = player) => Math.atan2(target.y - y, target.x - x);
 const aimFromBoss = () => aim(boss.x, boss.y);
 const later = (frames, fn) => queue.push({ t: frames, f: fn });
 const spawnOrb = (id) => {
+    // never a burst of orbs: too soon after the last one, or too many on the screen -> this one is skipped
+    if (frame - lastOrbSpawnFrame < ORB_MIN_GAP || orbs.length >= ORB_MAX_ON_SCREEN) return;
+    lastOrbSpawnFrame = frame;
     if (SELECT_ORBS.includes(id)) lastOrbColor = id; // (the yellow orb is not one of the 5 colours)
     orbs.push({
         x: ORB_MARGIN_X + Math.random() * (W - ORB_MARGIN_X * 2),

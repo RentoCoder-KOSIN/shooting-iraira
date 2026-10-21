@@ -80,6 +80,8 @@ const ORB_DROP_FROM_FORM = 1; // orbs start falling from this form (0 = form 1)
 const ORB_DROP_INTERVAL = 270; // an orb falls every N frames ...
 const ORB_DROP_OFFSET = 135; // ... at this frame inside each interval
 const ORB_FALL_SPEED = 1.8; // pixels per frame
+const ORB_MIN_GAP = 150; // a new orb does not fall within this many frames after the last one (no bursts of orbs)
+const ORB_MAX_ON_SCREEN = 2; // ... and never when this many orbs are already on the screen
 const ORB_PICK_R = 16; // how close the player must be to take it
 const ORB_MARGIN_X = 70; // orbs do not fall closer than this to the left / right edge
 
@@ -356,8 +358,8 @@ const ORBS = {
 const SELECT_ORBS = ["invert", "heal", "gag", "double", "fake"];
 
 // Orbs that fall from the sky (the position is random, the order is fixed)
-// (12 slots: red "heal" twice, purple "fake" twice, yellow "back" once)
-const ORB_ORDER_MAIN = ["gag", "double", "fake", "invert", "back", "double", "heal", "gag", "heal", "invert", "fake", "double"];
+// (14 slots: red "heal" twice, purple "fake" twice, yellow "back" once)
+const ORB_ORDER_MAIN = ["gag", "double", "fake", "invert", "back", "double", "heal", "gag", "invert", "heal", "fake", "double", "gag", "invert"];
 // Used by the "orbs" pattern: only the first 6 slots are ever used (one purple, one red).
 const ORB_ORDER_PATTERN = ["gag", "double", "fake", "invert", "heal", "back"];
 
