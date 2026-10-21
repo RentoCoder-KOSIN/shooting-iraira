@@ -351,14 +351,15 @@ const ORBS = {
 };
 
 // Orbs offered on the selection screen after every boss defeat, left to right
-// (the colors stay in place, but which effect each color has is shuffled every time)
+// (the colors stay in place, but which effect each color has changes every time, by a rule: see enterSelect() in script.js)
+// The ORDER here is the number of each colour: 橙1 赤2 青3 緑4 紫5
 const SELECT_ORBS = ["invert", "heal", "gag", "double", "fake"];
 
 // Orbs that fall from the sky (the position is random, the order is fixed)
-// (12 slots, red "heal" only once, yellow "back" once)
-const ORB_ORDER_MAIN = ["gag", "double", "fake", "invert", "back", "double", "fake", "gag", "heal", "invert", "fake", "double"];
-// Used by the "orbs" pattern: only the first 6 slots are ever used, so red is left out here.
-const ORB_ORDER_PATTERN = ["gag", "double", "fake", "invert", "fake", "back"];
+// (12 slots: red "heal" twice, purple "fake" twice, yellow "back" once)
+const ORB_ORDER_MAIN = ["gag", "double", "fake", "invert", "back", "double", "heal", "gag", "heal", "invert", "fake", "double"];
+// Used by the "orbs" pattern: only the first 6 slots are ever used (one purple, one red).
+const ORB_ORDER_PATTERN = ["gag", "double", "fake", "invert", "heal", "back"];
 
 /* ============================================================================
  *  4. BULLET TYPES (弾の種類)

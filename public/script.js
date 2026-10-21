@@ -78,6 +78,7 @@ let detourSave; // { hp, max, patIdx } of the form to return to after the detour
 let patIdx, patTime; // position in SEQUENCES and frames since the current step started
 let frame; // global frame counter
 let selectMap = [...SELECT_ORBS]; // effect of each selection orb (shuffled at every selection after form 1)
+let lastOrbColor = null; // the last colour (SELECT_ORBS id) that fell from the sky: the base of the next selection
 let selectRandom = false; // false: the selection after form 1 (original behavior), true: the selections after form 2 and later
 let fakeTimer, clearTimer, gagText, tauntText;
 let fakeCount; // purple orbs taken in this run (decides how long the fake game over lasts)
@@ -180,6 +181,7 @@ function resetGame() {
     practice = false;
     state = S.TITLE;
     selectMap = [...SELECT_ORBS];
+    lastOrbColor = null;
     selectRandom = false;
     keyHealUsed = false;
     invertTimer = 0;
@@ -280,21 +282,24 @@ function selectOrbPos(i) {
         y: H / 2 + (((i / SEL_COLS) | 0) - (rows - 1) / 2) * SEL_GAP,
     };
 }
-// The effect of the i-th selection orb (the colors stay in place, the effects are shuffled every time)
+// The effect of the i-th selection orb (the colors stay in place, the effects rotate by a rule every time)
 function selectEffect(i) {
     return selectMap[i];
 }
 // Open the orb selection and put the player at the start.
 // random = false: the selection after form 1 (every color keeps its own effect, as before)
-// random = true: after form 2 and later (which effect each color has is shuffled every time)
+// random = true: after form 2 and later. Not random any more: the effects are numbered in the order of SELECT_ORBS
+// (橙1 赤2 青3 緑4 紫5). The colour that fell last before the boss was beaten becomes number 1, and the colours
+// after it (in the same order, wrapping around) get effects 2, 3, 4, 5.
+// Example: last colour = 青 -> 青=橙の効果, 緑=赤の効果, 紫=青の効果, 橙=緑の効果, 赤=紫の効果
 function enterSelect(random = true) {
     selectRandom = random;
     selectMap = [...SELECT_ORBS];
-    if (random)
-        for (let i = selectMap.length - 1; i > 0; i--) {
-            const j = (Math.random() * (i + 1)) | 0;
-            [selectMap[i], selectMap[j]] = [selectMap[j], selectMap[i]];
-        }
+    if (random) {
+        const n = SELECT_ORBS.length;
+        const k = Math.max(0, SELECT_ORBS.indexOf(lastOrbColor)); // no colour has fallen yet ->橙 (no change)
+        for (let m = 0; m < n; m++) selectMap[(k + m) % n] = SELECT_ORBS[m];
+    }
     state = S.SELECT;
     player.x = PLAYER_START.x;
     player.y = PLAYER_START.y;
@@ -1018,12 +1023,14 @@ canvas.addEventListener("pointercancel", endSetDrag);
 const aim = (x, y, target = player) => Math.atan2(target.y - y, target.x - x);
 const aimFromBoss = () => aim(boss.x, boss.y);
 const later = (frames, fn) => queue.push({ t: frames, f: fn });
-const spawnOrb = (id) =>
+const spawnOrb = (id) => {
+    if (SELECT_ORBS.includes(id)) lastOrbColor = id; // (the yellow orb is not one of the 5 colours)
     orbs.push({
         x: ORB_MARGIN_X + Math.random() * (W - ORB_MARGIN_X * 2),
         y: -10,
         id,
     });
+};
 
 // Roll a random extra tempo from RANDOM_TEMPO. Returns fields that can be passed to shoot().
 function rollTempo() {
@@ -1646,7 +1653,7 @@ function drawSelect() {
         });
     } else
         drawText(
-            "どの色がどの効果かは、毎回ランダムです",
+            "どの色がどの効果かは、毎回変わります(規則があります)",
             CX,
             50,
             15,
