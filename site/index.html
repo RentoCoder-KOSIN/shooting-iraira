@@ -20,6 +20,7 @@
     <div class="collapse navbar-collapse justify-content-end" id="nav">
       <ul class="navbar-nav align-items-md-center gap-md-3">
         <li class="nav-item"><a class="nav-link" href="#about">ゲーム紹介</a></li>
+        <li class="nav-item"><a class="nav-link" href="#details">詳細説明</a></li>
         <li class="nav-item"><a class="nav-link" href="#access">アクセス方法</a></li>
         <li class="nav-item"><a class="btn btn-accent" href="/play">今すぐ遊ぶ</a></li>
       </ul>
@@ -63,6 +64,77 @@
           <div class="shot shot-card shot-crop"><img src="/site/img/title.png" width="1310" height="635" alt="ランキングのTOP10。スコアと形態ごとのタイムが並んでいる" loading="lazy"></div>
           <span class="num">03</span><h3>ランキング</h3><p class="text-muted mb-0">理不尽モードと通常モードで、スコアを競えます。名前を登録して、ほかのプレイヤーと比べましょう。</p>
         </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="details" class="container py-6">
+    <p class="eyebrow">DETAILS</p>
+    <h2 class="section-title">詳細説明</h2>
+    <p class="lead text-muted mb-5 narrow">操作方法、ゲームの流れ、モードの違い、スコアの仕組みをまとめました。</p>
+
+    <div class="row g-4 mb-5">
+      <div class="col-md-6"><div class="detail-box h-100">
+        <h3>操作方法</h3>
+        <dl class="spec">
+          <dt>移動</dt><dd>WASDキー、または矢印キー</dd>
+          <dt>スマホ</dt><dd>画面をドラッグして移動</dd>
+          <dt>攻撃</dt><dd>自動(ボタン操作は不要)</dd>
+        </dl>
+      </div></div>
+      <div class="col-md-6"><div class="detail-box h-100">
+        <h3>ゲームの流れ</h3>
+        <ol class="flow mb-0">
+          <li>体力10(♥×10)でスタート。弾に当たると減り、被弾の直後は少しの間だけ無敵になります。</li>
+          <li>ボスの形態を1つ倒すごとに、色玉を1つ選びます。</li>
+          <li>最後の形態まで倒せばクリア。体力が0になるとゲームオーバーです。</li>
+        </ol>
+      </div></div>
+    </div>
+
+    <h3 class="sub-title">モードの違い</h3>
+    <div class="table-responsive mb-5">
+      <table class="table spec-table align-middle">
+        <thead><tr><th>モード</th><th>形態数</th><th>ランキング</th><th>特徴</th></tr></thead>
+        <tbody>
+          <tr><td class="fw-bold">理不尽モード</td><td>7</td><td>あり</td><td>本命のモード。攻撃の順番を覚えるほど先へ進めます。</td></tr>
+          <tr><td class="fw-bold">通常モード</td><td>4</td><td>あり(別ボード)</td><td>形態が少なく、まず遊んでみたい人向けです。</td></tr>
+          <tr><td class="fw-bold">RLモード</td><td>7</td><td>なし</td><td>ボスAIが強化学習で成長します。プレイヤーごとにボスの動きが変わるため、記録は比べられません。</td></tr>
+          <tr><td class="fw-bold">練習モード</td><td>選択</td><td>なし</td><td>形態を1つ選んで、その形態だけを何度でも練習できます。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub-title">色玉について</h3>
+    <p class="text-muted mb-5 narrow">オレンジ・赤・青・緑・紫の5色から1つ選びます。効果は選ぶまで分かりません。選択画面では、色と効果の組み合わせが毎回入れ替わります。ここでは効果を載せません。ぜひ自分で確かめてください。</p>
+
+    <h3 class="sub-title">スコアの仕組み</h3>
+    <div class="table-responsive mb-5">
+      <table class="table spec-table align-middle">
+        <thead><tr><th>項目</th><th>点数</th></tr></thead>
+        <tbody>
+          <tr><td class="fw-bold">形態ポイント</td><td>倒した形態ごとに加点。1形態目は1000点で、形態が進むごとに250点ずつ増えます。</td></tr>
+          <tr><td class="fw-bold">タイムボーナス</td><td>倒した形態ごとに最大500点。早く倒すほど高くなります。</td></tr>
+          <tr><td class="fw-bold">生存ボーナス</td><td>クリアできなかった場合、最後の形態でどれだけ粘れたかに応じて最大300点。</td></tr>
+          <tr><td class="fw-bold">クリアボーナス</td><td>全形態を倒すと5000点。</td></tr>
+          <tr><td class="fw-bold">体力ボーナス</td><td>クリア時のみ。残った体力1つにつき300点。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub-title">よくある質問</h3>
+    <div class="accordion faq" id="faq">
+      <div class="accordion-item">
+        <h4 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq1" aria-expanded="false" aria-controls="faq1">スマホでも遊べますか?</button></h4>
+        <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#faq"><div class="accordion-body text-muted">遊べます。画面をドラッグして自機を動かします。攻撃は自動です。</div></div>
+      </div>
+      <div class="accordion-item">
+        <h4 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq2" aria-expanded="false" aria-controls="faq2">登録やインストールは必要ですか?</button></h4>
+        <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faq"><div class="accordion-body text-muted">インストールは不要です。ランキングに載せるときだけ、名前を登録します。</div></div>
+      </div>
+      <div class="accordion-item">
+        <h4 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq3" aria-expanded="false" aria-controls="faq3">最初は何をすればいいですか?</button></h4>
+        <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faq"><div class="accordion-body text-muted">まず練習モードで形態ごとの攻撃を見てみましょう。慣れたら理不尽モードに挑戦するのがおすすめです。</div></div>
       </div>
     </div>
   </section>

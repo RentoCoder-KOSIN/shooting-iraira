@@ -43,3 +43,19 @@ body{line-height:1.7}
 .shot-card{border-width:0;border-radius:10px;aspect-ratio:16/9;object-fit:cover;margin-bottom:.25rem}
 .shot-crop{overflow:hidden}
 .shot-crop img{display:block;width:250%;max-width:none;height:auto;margin:-2% 0 0 -3.8%}
+
+.detail-box{border:2px solid var(--ink);border-radius:16px;padding:2rem;background:#fff}
+.detail-box h3{font-size:1.375rem;font-weight:700;margin-bottom:1rem}
+.sub-title{font-size:1.375rem;font-weight:700;margin-bottom:1rem}
+.spec{display:grid;grid-template-columns:auto 1fr;gap:.5rem 1.25rem;margin:0}
+.spec dt{font-weight:700;color:var(--accent)}
+.spec dd{margin:0;color:var(--muted)}
+.flow{padding-left:1.25rem;color:var(--muted)}
+.flow li+li{margin-top:.5rem}
+.spec-table{--bs-table-bg:#fff;border:2px solid var(--ink);border-collapse:separate;border-spacing:0;border-radius:12px;overflow:hidden}
+.spec-table th{background:var(--ink);color:var(--paper);font-weight:700;white-space:nowrap}
+.spec-table td{color:var(--muted)}
+.spec-table td.fw-bold{color:var(--ink);white-space:nowrap}
+.faq .accordion-item{border:2px solid var(--ink);border-radius:12px!important;overflow:hidden;margin-bottom:.75rem}
+.faq .accordion-button{font-weight:700;color:var(--ink);background:#fff}
+.faq .accordion-button:not(.collapsed){color:var(--accent);background:#fff;box-shadow:none}

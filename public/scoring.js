@@ -18,7 +18,7 @@
     if (typeof module === "object" && module.exports) module.exports = factory();
     else root.Scoring = factory();
 })(typeof self !== "undefined" ? self : this, function () {
-    const MAX_HP = 8; // the player's normal max HP (records with admin sliders are never sent)
+    const MAX_HP = 10; // the player's normal max HP (records with admin sliders are never sent)
 
     const FORM_BASE = 1000;
     const FORM_STEP = 250;

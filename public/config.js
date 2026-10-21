@@ -36,7 +36,7 @@ const PI = Math.PI;
 const STEP_MS = 16.67; // fixed time step (about 60 updates per second)
 
 // ---- player ----
-const PLAYER_MAX_HP = 8;
+const PLAYER_MAX_HP = 10; // starting HP (= max HP). scoring.js MAX_HP must match
 
 // ---- effects (small particles, rings, screen shake). Kept light on purpose. ----
 const FX_ENABLED = true; // false = no effects at all (if the game ever lags)
@@ -80,8 +80,9 @@ const ORB_FALL_SPEED = 1.8; // pixels per frame
 const ORB_PICK_R = 16; // how close the player must be to take it
 const ORB_MARGIN_X = 70; // orbs do not fall closer than this to the left / right edge
 
-// ---- red orb (heals the boss and you; the boss gets stronger: you take more damage) ----
+// ---- red orb (heals the boss and you; in 通常モード the boss also gets stronger: you take more damage) ----
 // The boss heal ratio and the damage multiplier depend on the mode (see MODES below).
+// 理不尽 / RLモード: redDmgMul = 1 (the red orb no longer raises the damage you take)
 const RED_PLAYER_HEAL = 2; // the player recovers this many hearts
 
 const DETOUR_MAX_FORM = 3; // yellow orb: last form (0 = form 1) where it works in 通常モード
@@ -100,15 +101,15 @@ const MODES = [
     {
         id: "hard",
         label: "理不尽モード",
-        desc: "本命。全7形態。赤玉の代償もきつい",
+        desc: "本命。全7形態",
         bossHp: BOSS_HP_HARD, // one entry per form = the number of forms
         formTitles: FORM_TITLES_HARD,
         detourMaxForm: 5, // yellow orb works up to this form (0 = form 1)
         // sequences: attached at the bottom of this file (SEQUENCES_HARD)
         color: "#f55",
         startSpeedMul: 1.1,
-        bossHealRatio: 0.3,
-        redDmgMul: 3,
+        bossHealRatio: 0.15, // halved (was 0.3)
+        redDmgMul: 1, // no damage multiplier any more (was 3)
         ranked: true,
         rowWave: true, // the orange wall: flow -> all rows stop -> all rows drop fast (see WALL_STOP_FRAMES)
         // the orange wall changes how it moves from one appearance to the next (see wallIsWave):
@@ -125,7 +126,7 @@ const MODES = [
         // sequences: attached at the bottom of this file (SEQUENCES)
         color: "#6af",
         startSpeedMul: 1.0,
-        bossHealRatio: 0.2,
+        bossHealRatio: 0.1, // halved (was 0.2)
         redDmgMul: 2,
         ranked: true, // 通常モードもランキングに登録される（モードごとに別のボード）
         rowWave: false, // the orange wall: the old behaviour (the whole wall speeds up / slows down together)
@@ -142,8 +143,8 @@ const MODES = [
         // sequences: attached at the bottom of this file (only used to build the AI's attack list)
         color: "#4d4",
         startSpeedMul: 1.1,
-        bossHealRatio: 0.3,
-        redDmgMul: 3,
+        bossHealRatio: 0.15, // halved (was 0.3)
+        redDmgMul: 1, // no damage multiplier any more (was 3)
         ranked: false, // the boss is different for every player, so the scores cannot be compared
         rowWave: true, // the orange wall: flow -> stop -> drop fast (same as 理不尽モード)
         rl: true, // the boss is controlled by RL (rl.js)
