@@ -51,6 +51,9 @@ const HURT_INVINCIBLE_FRAMES = 60; // invincibility after being hit
 // ---- boss ----
 const BOSS_HP = [170, 220, 260, 340]; // HP of each form (通常モード: 4 forms)
 const BOSS_HP_HARD = [170, 220, 260, 340, 380, 440, 560]; // 理不尽モード: 7 forms
+// 理不尽モード actually uses this one: forms 1-3 are unchanged, forms 4-7 are shorter (scoring.js parMs = HP x 200 ms).
+// BOSS_HP_HARD above stays as it was for the RLモード (its learned data depends on it).
+const BOSS_HP_HARD_EASED = [170, 220, 260, 300, 330, 380, 480];
 // Subtitle shown in the HUD for the 理不尽 forms (null = no subtitle)
 const FORM_TITLES_HARD = [null, null, null, null, "覚えた奴ほど死ぬ", "プレイヤー対策", "最終理不尽"];
 const FORM_NAMES = "一二三四五六七"; // used in "第◯形態" (the 理不尽 mode has 7 forms)
@@ -102,7 +105,7 @@ const MODES = [
         id: "hard",
         label: "理不尽モード",
         desc: "本命。全7形態",
-        bossHp: BOSS_HP_HARD, // one entry per form = the number of forms
+        bossHp: BOSS_HP_HARD_EASED, // one entry per form = the number of forms
         formTitles: FORM_TITLES_HARD,
         detourMaxForm: 5, // yellow orb works up to this form (0 = form 1)
         // sequences: attached at the bottom of this file (SEQUENCES_HARD)
@@ -1172,6 +1175,39 @@ const SEQUENCES_HARD = [
 
 // Attach the attack lists to the modes (MODES is defined at the top, before these lists exist).
 // The number of lists must equal the number of forms (the length of bossHp); script.js checks it.
-MODES.find((m) => m.id === "hard").sequences = SEQUENCES_HARD;
-MODES.find((m) => m.id === "normal").sequences = SEQUENCES;
+// ---- eased attack lists (forms 1-3 are untouched; from form 4 fewer patterns run at the same time) ----
+// SEQUENCES / SEQUENCES_HARD above are NOT edited: the RLモード builds its list of actions from SEQUENCES_HARD,
+// and its learned data (data/rl-model.json, rl-pretrained.js) depends on that list.
+const FORM4_EASED = [
+    ["rep2", "home"],
+    ["wall"],
+    ["refl", "fake"], // vbeam moved to its own step
+    ["vbeam"],
+    ["orbs", "trail"], // follow removed
+    ["rot", "orbs"], // home removed
+];
+const SEQUENCES_EASED = [SEQUENCES[0], SEQUENCES[1], SEQUENCES[2], FORM4_EASED]; // 通常モード
+const SEQUENCES_HARD_EASED = [
+    SEQUENCES[0],
+    SEQUENCES[1],
+    SEQUENCES[2],
+    FORM4_EASED,
+    // form 5: same single patterns as before (only the boss HP is lower)
+    SEQUENCES_HARD[4],
+    // form 6: at most 2 patterns at once
+    [["habit"], ["surround"], ["boom"], ["swirl"], ["burst", "camper"], ["pressure"]],
+    // form 7: rage (extra attacks at low boss HP) is kept, but the other patterns are no longer stacked on it
+    [
+        ["rep3", "rage"],
+        ["wallR"], // no rage here: the wall must stay dodgeable
+        ["habit", "rage"],
+        ["habitY", "rage"],
+        ["surround", "rage"],
+        ["freezeRing", "rage"],
+        ["pressure", "camper", "rage"],
+    ],
+];
+
+MODES.find((m) => m.id === "hard").sequences = SEQUENCES_HARD_EASED;
+MODES.find((m) => m.id === "normal").sequences = SEQUENCES_EASED;
 MODES.find((m) => m.id === "rl").sequences = SEQUENCES_HARD; // same 7 forms; RL picks the steps itself
