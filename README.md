@@ -10,7 +10,7 @@ shooting-iraira/
 │  ├─ index.html  style.css
 │  ├─ script.js  config.js  scoring.js  rl.js  rl-pretrained.js  ai.js  net.js  audio.js
 │  └─ audio/          BGM・効果音（bgm/ se/）
-├─ site/              紹介ページ(Bootstrap)  /  で表示。css/ js/
+├─ site/              紹介ページ(Bootstrap)  /  で表示。css/ js/ img/(スクリーンショット)
 ├─ server/            ランキング・RL共有・観戦のサーバー（Node.js）
 │  └─ server.js  realtime.js  rlmodel.js
 ├─ data/              サーバーのローカル保存（DATABASE_URL なしのとき）

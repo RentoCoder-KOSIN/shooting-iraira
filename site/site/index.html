@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>世界一イライラするゲーム</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link href="/site/css/style.css" rel="stylesheet">
+</head>
+<body>
+
+<header class="container py-3">
+  <nav class="navbar navbar-expand-md px-0">
+    <a class="navbar-brand fw-bold" href="#top">世界一イライラするゲーム</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav" aria-expanded="false" aria-label="メニューを開く">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse justify-content-end" id="nav">
+      <ul class="navbar-nav align-items-md-center gap-md-3">
+        <li class="nav-item"><a class="nav-link" href="#about">ゲーム紹介</a></li>
+        <li class="nav-item"><a class="nav-link" href="#access">アクセス方法</a></li>
+        <li class="nav-item"><a class="btn btn-accent" href="/play">今すぐ遊ぶ</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+
+<main id="top">
+  <section class="container hero py-5">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-6">
+        <span class="badge-outline mb-4 d-inline-block">学生向けゲーム</span>
+        <h1 class="display-title mb-4">初見は理不尽。<br>覚えれば勝てる。</h1>
+        <p class="lead text-muted mb-4">効果の分からない5色の玉を選んで、理不尽なボスの弾幕に挑む。ブラウザですぐ遊べるシューティングです。</p>
+        <div class="d-flex flex-wrap gap-3">
+          <a class="btn btn-accent btn-lg" href="/play">今すぐ遊ぶ</a>
+          <a class="btn btn-outline-dark btn-lg" href="#about">ゲームを知る</a>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="screen" role="img" aria-label="ゲーム画面のプレースホルダー">
+          <span class="shape s1"></span><span class="shape s2"></span>
+          <span class="shape s3"></span><span class="shape s4"></span>
+          <small class="screen-label">[ゲーム画面のスクリーンショット]</small>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="about" class="section-white py-6">
+    <div class="container">
+      <p class="eyebrow">ABOUT</p>
+      <h2 class="section-title">ゲームの紹介</h2>
+      <p class="lead text-muted mb-5 narrow">操作はWASD(または矢印キー)。最初は何が起きているか分からなくても、攻撃の順番や玉の効果を覚えるほど先へ進めます。理不尽モード、通常モード、ボスAIが学習するRLモード、練習モードから選べます。</p>
+      <div class="row g-4">
+        <div class="col-md-4"><div class="card-flat h-100">
+          <span class="num">01</span><h3>理不尽モード</h3><p class="text-muted mb-0">全7形態のボスが、初見では避けられない攻撃を仕掛けてきます。覚えれば、ちゃんと攻略できる設計です。</p>
+        </div></div>
+        <div class="col-md-4"><div class="card-flat h-100">
+          <span class="num">02</span><h3>効果不明の5色の玉</h3><p class="text-muted mb-0">オレンジ・赤・青・緑・紫の玉から1つ選びます。何が起きるかは、選んでからのお楽しみです。</p>
+        </div></div>
+        <div class="col-md-4"><div class="card-flat h-100">
+          <span class="num">03</span><h3>ランキング</h3><p class="text-muted mb-0">理不尽モードと通常モードで、スコアを競えます。名前を登録して、ほかのプレイヤーと比べましょう。</p>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="access" class="container py-6">
+    <p class="eyebrow">ACCESS</p>
+    <h2 class="section-title">ゲームへのアクセス</h2>
+    <p class="lead text-muted mb-5">3ステップですぐに遊べます。</p>
+    <div class="row g-5 mb-5">
+      <div class="col-md-4"><div class="step"><span class="step-label">STEP 1</span><h3>ブラウザで開く</h3><p class="text-muted">インストールは不要です。「今すぐ遊ぶ」から、そのままゲームが始まります。</p></div></div>
+      <div class="col-md-4"><div class="step"><span class="step-label">STEP 2</span><h3>モードを選ぶ</h3><p class="text-muted">理不尽・通常・RL・練習から選びます。まずは練習モードで慣れるのもおすすめです。</p></div></div>
+      <div class="col-md-4"><div class="step"><span class="step-label">STEP 3</span><h3>プレイして記録を残す</h3><p class="text-muted">ボスを倒したら名前を登録して、ランキングに載せましょう。</p></div></div>
+    </div>
+    <div class="cta d-flex flex-wrap align-items-center justify-content-between gap-4">
+      <div>
+        <div class="cta-title">さあ、遊んでみよう。</div>
+        <div class="cta-sub">ブラウザですぐ遊べます</div>
+      </div>
+      <a id="play-link" class="btn btn-yellow btn-lg" href="/play">今すぐ遊ぶ</a>
+    </div>
+  </section>
+</main>
+
+<footer class="border-top">
+  <div class="container py-4 d-flex flex-wrap justify-content-between gap-2 small text-muted">
+    <span>&copy; 世界一イライラするゲーム</span>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/site/js/main.js"></script>
+</body>
+</html>
