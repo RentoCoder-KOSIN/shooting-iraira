@@ -1757,12 +1757,18 @@ function drawField() {
         "left",
     );
     if (practice) drawText("練習　Esc: 形態選択へ", CX, H - 10, 11, "#6d6");
-    if (invincible) drawText("ADMIN: 無敵", W - 10, 36, 14, "#fc3", "right");
+    // top right: the colour that fell last (the base of the next orb selection, see enterSelect)
+    if (lastOrbColor) {
+        const lo = ORBS[lastOrbColor];
+        drawText("最後 " + lo.name, W - 24, 36, 13, "#aab", "right");
+        drawCircle(W - 14, 31, 6, lo.color);
+    } else drawText("最後 なし", W - 10, 36, 13, "#667", "right");
+    if (invincible) drawText("ADMIN: 無敵", W - 10, 52, 14, "#fc3", "right");
     if (attackMul !== 1 || playerMaxHp !== PLAYER_MAX_HP)
         drawText(
             "ADMIN: 攻撃力×" + attackMul + " 体力" + playerMaxHp,
             W - 10,
-            invincible ? 52 : 36,
+            invincible ? 68 : 52,
             12,
             "#fc3",
             "right",
