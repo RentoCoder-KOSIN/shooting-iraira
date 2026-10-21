@@ -256,10 +256,19 @@ function createApp(store, rl) {
 
     // Only the game files in public/ are served (not server/ / package.json / data/)
     const PUBLIC_DIR = path.join(__dirname, "..", "public");
+<<<<<<< HEAD
     const FILES = ["index.html", "style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js", "audio.js", "ai.js"];
     app.get("/", (req, res) =>
         res.sendFile(path.join(PUBLIC_DIR, "index.html")),
     );
+=======
+    const SITE_DIR = path.join(__dirname, "..", "site");
+    const FILES = ["style.css", "script.js", "config.js", "scoring.js", "rl.js", "rl-pretrained.js", "net.js", "audio.js", "ai.js"];
+    app.get("/", (req, res) => res.sendFile(path.join(SITE_DIR, "index.html"))); // 紹介ページ
+    app.use((req, res, next) => (req.path === "/play/" ? res.redirect(301, "/play") : next())); // 末尾スラッシュだと相対パスが壊れるため
+    app.get("/play", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html"))); // ゲーム本体
+    app.use("/site", express.static(SITE_DIR, { fallthrough: true, index: false })); // 紹介ページの css / js
+>>>>>>> 5d70950 (organized)
     for (const f of FILES)
         app.get("/" + f, (req, res) => res.sendFile(path.join(PUBLIC_DIR, f)));
     app.get("/favicon.ico", (req, res) => res.status(204).end());
