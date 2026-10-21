@@ -288,17 +288,18 @@ function selectEffect(i) {
 }
 // Open the orb selection and put the player at the start.
 // random = false: the selection after form 1 (every color keeps its own effect, as before)
-// random = true: after form 2 and later. Not random any more: the effects are numbered in the order of SELECT_ORBS
-// (橙1 赤2 青3 緑4 紫5). The colour that fell last before the boss was beaten becomes number 1, and the colours
-// after it (in the same order, wrapping around) get effects 2, 3, 4, 5.
-// Example: last colour = 青 -> 青=橙の効果, 緑=赤の効果, 紫=青の効果, 橙=緑の効果, 赤=紫の効果
+// random = true: after form 2 and later. Not random any more: the colours are numbered in the order of SELECT_ORBS
+// (橙1 赤2 青3 緑4 紫5). The colour that fell last before the boss was beaten comes first, then the others in the
+// same order (wrapping around). The effects of that list are put on the 1st, 2nd, ... 5th orb (橙, 赤, 青, 緑, 紫 position).
+// Example: last colour = 青 -> 橙の位置=青の効果, 赤=緑の効果, 青=紫の効果, 緑=橙の効果, 紫=赤の効果
+// Example: last colour = 紫 -> 橙の位置=紫の効果, 赤=橙の効果, 青=赤の効果, 緑=青の効果, 紫=緑の効果
 function enterSelect(random = true) {
     selectRandom = random;
     selectMap = [...SELECT_ORBS];
     if (random) {
         const n = SELECT_ORBS.length;
         const k = Math.max(0, SELECT_ORBS.indexOf(lastOrbColor)); // no colour has fallen yet ->橙 (no change)
-        for (let m = 0; m < n; m++) selectMap[(k + m) % n] = SELECT_ORBS[m];
+        for (let i = 0; i < n; i++) selectMap[i] = SELECT_ORBS[(i + k) % n];
     }
     state = S.SELECT;
     player.x = PLAYER_START.x;
