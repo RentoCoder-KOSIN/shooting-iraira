@@ -51,9 +51,10 @@ const HURT_INVINCIBLE_FRAMES = 60; // invincibility after being hit
 // ---- boss ----
 const BOSS_HP = [170, 220, 260, 340]; // HP of each form (通常モード: 4 forms)
 const BOSS_HP_HARD = [170, 220, 260, 340, 380, 440, 560]; // 理不尽モード: 7 forms
-// 理不尽モード actually uses this one: forms 1-3 are unchanged, forms 4-7 are shorter (scoring.js parMs = HP x 200 ms).
+// 理不尽モード actually uses this one: forms 1-3 are unchanged, forms 4-7 are a bit shorter than BOSS_HP_HARD
+// (scoring.js parMs = HP x 200 ms). Forms 4-7 were eased once and then raised again about half way back (2026-10-22).
 // BOSS_HP_HARD above stays as it was for the RLモード (its learned data depends on it).
-const BOSS_HP_HARD_EASED = [170, 220, 260, 300, 330, 380, 480];
+const BOSS_HP_HARD_EASED = [170, 220, 260, 320, 355, 410, 520];
 // Subtitle shown in the HUD for the 理不尽 forms (null = no subtitle)
 const FORM_TITLES_HARD = [null, null, null, null, "覚えた奴ほど死ぬ", "プレイヤー対策", "最終理不尽"];
 const FORM_NAMES = "一二三四五六七"; // used in "第◯形態" (the 理不尽 mode has 7 forms)
@@ -1190,23 +1191,31 @@ const FORM4_EASED = [
     ["rot", "orbs"], // home removed
 ];
 const SEQUENCES_EASED = [SEQUENCES[0], SEQUENCES[1], SEQUENCES[2], FORM4_EASED]; // 通常モード
+// 理不尽モード forms 4-7: about half way between the eased lists and the original SEQUENCES_HARD (raised again 2026-10-22).
+const FORM4_HARD = [
+    ["rep2", "home"],
+    ["wall"],
+    ["refl", "fake", "trail"], // trail (shots left where you walk + homing shots) is here, never together with vbeam
+    ["vbeam", "fake"], // vbeam: no trail / follow / home at the same time (they aim at you or appear at your spot)
+    ["orbs", "trail", "follow"], // back to the original three
+    ["rot", "home", "orbs"], // back to the original three (still no vbeam: rot + vbeam is impossible)
+];
 const SEQUENCES_HARD_EASED = [
     SEQUENCES[0],
     SEQUENCES[1],
     SEQUENCES[2],
-    FORM4_EASED,
-    // form 5: same single patterns as before (only the boss HP is lower)
-    SEQUENCES_HARD[4],
-    // form 6: at most 2 patterns at once
-    [["habit"], ["surround"], ["boom"], ["swirl"], ["burst", "camper"], ["pressure"]],
-    // form 7: rage (extra attacks at low boss HP) is kept, but the other patterns are no longer stacked on it
+    FORM4_HARD,
+    // form 5: the last step now stacks two patterns
+    [["rep3"], ["wallR"], ["freezeRing"], ["boom"], ["burst", "rep3"]],
+    // form 6: habit+boom and swirl+burst are back; the original last step is split into burst+camper and pressure+camper
+    [["habit"], ["surround"], ["habit", "boom"], ["swirl", "burst"], ["burst", "camper"], ["pressure", "camper"]],
+    // form 7: rage is kept; three steps stack patterns again, habitY and surround stay single
     [
-        ["rep3", "rage"],
+        ["rep3", "freezeRing", "rage"],
         ["wallR"], // no rage here: the wall must stay dodgeable
-        ["habit", "rage"],
+        ["habit", "burst", "rage"],
         ["habitY", "rage"],
         ["surround", "rage"],
-        ["freezeRing", "rage"],
         ["pressure", "camper", "rage"],
     ],
 ];

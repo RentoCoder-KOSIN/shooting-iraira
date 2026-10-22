@@ -230,6 +230,12 @@ const Sound = (() => {
     return {
         se,
         bgm,
+        // ポーズ中: BGMを一時停止 / 再開
+        setPaused(v) {
+            if (!cur) return;
+            if (v) cur.el.pause();
+            else apply();
+        },
         isMuted: () => muted,
         getVolume: () => ({ bgm: AUDIO.bgmVolume, se: AUDIO.seVolume }),
         // 設定画面用: 効果音の音量を確かめる音を1つ鳴らす(ファイルがある音を previewSe の順に探す)

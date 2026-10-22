@@ -29,7 +29,7 @@
 
     // forms = number of forms of the mode, parMs = par time per form (ms)
     const MODES = {
-        hard: { forms: 7, parMs: [34000, 44000, 52000, 60000, 66000, 76000, 96000] }, // = boss HP x 200 ms (BOSS_HP_HARD_EASED)
+        hard: { forms: 7, parMs: [34000, 44000, 52000, 64000, 71000, 82000, 104000] }, // = boss HP x 200 ms (BOSS_HP_HARD_EASED)
         normal: { forms: 4, parMs: [34000, 44000, 52000, 68000] },
     };
 

@@ -176,6 +176,7 @@ function exitPractice() {
 }
 
 function resetGame() {
+    paused = false;
     fx = [];
     shake = 0;
     bossFlash = 0;
@@ -321,6 +322,29 @@ const keys = {};
 
 /* admin mode (Shift+@ to open) */
 let adminOpen = false; // while true the game is paused and keys go to the panel
+
+/* ---- pause (Esc / Space / the tab being hidden). There is no on-screen pause button: it covered the reversed-controls countdown. ---- */
+let paused = false; // true: the game is frozen and the pause menu is shown
+let pauseTick = 0; // counts frames while paused (keeps the spectators' picture alive)
+// the player can pause while fighting or choosing an orb (not while the AI plays: it has its own speed controls)
+const canPause = () => !aiPlay && (state === S.PLAY || state === S.SELECT);
+const pauseResumeBtn = () => ({ x: CX - 110, y: 280, w: 220, h: 50 });
+const pauseQuitBtn = () => ({ x: CX - 110, y: 346, w: 220, h: 50 });
+function setPaused(v) {
+    v = !!v;
+    if (v === paused || (v && !canPause())) return;
+    paused = v;
+    for (const k in keys) keys[k] = false; // no key stays "held" across the pause
+    touch = null;
+    Sound.setPaused(v);
+}
+// quit from the pause menu: practice -> the form list, a real run -> the title screen (the run is abandoned)
+function quitFromPause() {
+    paused = false;
+    Sound.setPaused(false);
+    if (practice) exitPractice();
+    else resetGame();
+}
 let adminAuthed = false; // stays true until the page is reloaded
 let invincible = false; // admin: no damage
 let attackMul = 1; // admin: damage of each player shot to the boss (slider)
@@ -830,6 +854,22 @@ window.addEventListener("keydown", (e) => {
         if (!e.repeat) Sound.toggleMute();
         return;
     }
+    if (!e.repeat && !aiPlay) {
+        const pk = e.key.toLowerCase();
+        if (paused) {
+            if (pk === "escape" || pk === "enter" || pk === " ") {
+                e.preventDefault();
+                setPaused(false);
+            } else if (pk === "q") quitFromPause();
+            return; // every other key is ignored while paused (so it cannot be taken as a secret-key guess)
+        }
+        if ((pk === "escape" || pk === " ") && canPause()) {
+            if (pk === " ") e.preventDefault();
+            setPaused(true);
+            return;
+        }
+    }
+    if (paused) return; // (key repeat)
     keys[e.key.toLowerCase()] = true;
     if (state === S.GAG && gagStep >= 1 && !e.repeat) {
         // confirmations: the left / right arrow (or A / D) presses the button on that side
@@ -908,6 +948,11 @@ window.addEventListener("keyup", (e) => {
 
 canvas.addEventListener("click", (e) => {
     const p = canvasPoint(e);
+    if (paused) {
+        if (inButton(p, pauseResumeBtn())) setPaused(false);
+        else if (inButton(p, pauseQuitBtn())) quitFromPause();
+        return;
+    }
     if (state === S.FAKE) {
         // pressing the fake RESTART button does NOT restart the run any more: it ends the fake game over right away
         if (inButton(p, BTN_FAKE_RESTART)) resetGame(); // update() then returns to the game (with the invincibility)
@@ -1479,6 +1524,11 @@ function audioTick() {
 
 function update() {
     if (adminOpen) return; // paused while the admin panel is open
+    if (paused) {
+        // frozen: nothing moves. Spectators keep getting the (still) picture a few times a second so the player stays in the list
+        if (++pauseTick % 20 === 0 && isBroadcasting()) Net.sendSnap(buildSnap());
+        return;
+    }
     frame++;
     pumpSpectate();
     updateFx();
@@ -1756,7 +1806,7 @@ function drawField() {
         "#f66",
         "left",
     );
-    if (practice) drawText("練習　Esc: 形態選択へ", CX, H - 10, 11, "#6d6");
+    if (practice) drawText("練習　Esc / Space: ポーズ", CX, H - 10, 11, "#6d6");
     // top right: the colour that fell last (the base of the next orb selection, see enterSelect)
     if (lastOrbColor) {
         const lo = ORBS[lastOrbColor];
@@ -2378,6 +2428,26 @@ function draw() {
     if (keyDebug.t > 0)
         drawText(keyDebug.text, W - 6, H - 26, 11, "#8c8", "right");
     if (aiPlay) aiDraw(); // "AI playing" info (ai.js)
+    if (paused) drawPause();
+}
+
+function drawPause() {
+    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillRect(0, 0, W, H);
+    drawText("ポーズ中", CX, 230, 36, "#fff");
+    const r = pauseResumeBtn();
+    ctx.fillStyle = "#6af";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    drawText("再開", r.x + r.w / 2, r.y + 33, 20, "#012");
+    const q = pauseQuitBtn();
+    ctx.fillStyle = "#334";
+    ctx.fillRect(q.x, q.y, q.w, q.h);
+    ctx.strokeStyle = "#889";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(q.x, q.y, q.w, q.h);
+    drawText(practice ? "形態選択へ" : "やめてタイトルへ", q.x + q.w / 2, q.y + 32, 18, "#ccd");
+    drawText("Esc / Enter / Space: 再開　Q: " + (practice ? "形態選択へ" : "やめる"), CX, 430, 12, "#aab");
+    if (!practice) drawText("やめると、この挑戦は最初からになります", CX, 452, 12, "#f99");
 }
 
 /* ---- screen size ---- */
@@ -2425,6 +2495,11 @@ document.addEventListener("fullscreenchange", relayout);
 document.addEventListener("webkitfullscreenchange", relayout);
 if (window.visualViewport)
     window.visualViewport.addEventListener("resize", layout); // mobile: address bar shows / hides
+
+// switching to another tab pauses the fight (the browser stops the game loop there anyway)
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setPaused(true);
+});
 
 /* ---- main loop (fixed time step, about 60 updates per second) ---- */
 checkConfig();

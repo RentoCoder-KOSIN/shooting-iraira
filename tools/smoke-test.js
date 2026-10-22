@@ -29,6 +29,7 @@ function dummy() {
 const listeners = {};
 const saved = {};
 const sandbox = {
+    __listeners: listeners, // lets the test fire keydown / click events at the game
     sanitizeSnap: require("../server/realtime.js").sanitizeSnap, // server-side validation of spectator snapshots
     console, performance: { now: () => 0 }, requestAnimationFrame: () => 0, setTimeout: () => 0, clearTimeout: () => 0,
     fetch: () => Promise.reject(new Error("offline")), innerWidth: 480, innerHeight: 640, devicePixelRatio: 1,
@@ -39,7 +40,7 @@ const sandbox = {
 sandbox.window = sandbox;
 sandbox.self = sandbox;
 const ctx = vm.createContext(sandbox);
-for (const f of ["scoring.js", "config.js", "rl-pretrained.js", "rl.js", "net.js", "script.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
+for (const f of ["scoring.js", "config.js", "rl-pretrained.js", "rl.js", "net.js", "audio.js", "ai.js", "script.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
 
 const t = vm.runInContext(`(function () {
     const log = [];
@@ -210,6 +211,35 @@ const t = vm.runInContext(`(function () {
     resetGame(); chooseMode(1);
     for (let i = 0; i < 600 && state === S.PLAY; i++) { update(); orbs = []; }
     ok("通常モード still runs", gameMode.id === "normal" && state === S.PLAY);
+
+    // pause: Esc / button / Q
+    const fire = (type, ev) => (__listeners[type] || []).forEach((f) => f(Object.assign({ preventDefault() {}, repeat: false }, ev)));
+    resetGame(); chooseMode(1);
+    frames(60);
+    fire("keydown", { key: "Escape" });
+    ok("Esc pauses the fight", paused === true);
+    const f0 = frame, rf0 = runFrames, text0 = keyDebug.text;
+    frames(120); draw();
+    ok("nothing advances while paused", frame === f0 && runFrames === rf0);
+    fire("keydown", { key: "x" });
+    ok("other keys are ignored while paused", keyDebug.text === text0);
+    fire("keydown", { key: "Escape" });
+    frames(10);
+    ok("Esc resumes and the game runs again", paused === false && frame > f0 && runFrames > rf0);
+    // (the test canvas cannot receive clicks, so only the menu button positions are checked)
+    const rb = pauseResumeBtn(), qb = pauseQuitBtn();
+    ok("pause menu buttons are inside the screen and do not overlap", [rb, qb].every((b) => b.x >= 0 && b.y >= 0 && b.x + b.w <= W && b.y + b.h <= H) && rb.y + rb.h < qb.y);
+    ok("pausing is only possible while fighting", canPause() === true && (state = S.TITLE, canPause() === false) && (state = S.PLAY, true));
+    fire("keydown", { key: " " });
+    ok("Space pauses too", paused === true);
+    fire("keydown", { key: " " });
+    ok("Space resumes", paused === false);
+    setPaused(true); fire("keydown", { key: "q" });
+    ok("Q quits a real run to the title", paused === false && state === S.TITLE);
+    practMode = 0; practForm = 0; startPractice(); setPaused(true); fire("keydown", { key: "q" });
+    ok("Q quits a practice to the form list", paused === false && state === S.PRACT && practice === false);
+    resetGame(); chooseMode(1); setPaused(true); resetGame();
+    ok("resetGame clears the pause", paused === false);
 
     // reset of the learning
     RL.clear();
