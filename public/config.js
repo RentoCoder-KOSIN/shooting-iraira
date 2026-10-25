@@ -54,7 +54,7 @@ const BOSS_HP_HARD = [170, 220, 260, 340, 380, 440, 560]; // 理不尽モード:
 // 理不尽モード actually uses this one: forms 1-3 are unchanged, forms 4-7 are a bit shorter than BOSS_HP_HARD
 // (scoring.js parMs = HP x 200 ms). Forms 4-7 were eased once and then raised again about half way back (2026-10-22).
 // BOSS_HP_HARD above stays as it was for the RLモード (its learned data depends on it).
-const BOSS_HP_HARD_EASED = [170, 220, 260, 320, 355, 410, 520];
+const BOSS_HP_HARD_EASED = [170, 220, 260, 300, 355, 410, 520]; // form 4: 320 -> 300 (2026-10-25)
 // Subtitle shown in the HUD for the 理不尽 forms (null = no subtitle)
 const FORM_TITLES_HARD = [null, null, null, null, "覚えた奴ほど死ぬ", "プレイヤー対策", "最終理不尽"];
 const FORM_NAMES = "一二三四五六七"; // used in "第◯形態" (the 理不尽 mode has 7 forms)
@@ -1196,8 +1196,8 @@ const FORM4_HARD = [
     ["rep2", "home"],
     ["wall"],
     ["refl", "fake", "trail"], // trail (shots left where you walk + homing shots) is here, never together with vbeam
-    ["vbeam", "fake"], // vbeam: no trail / follow / home at the same time (they aim at you or appear at your spot)
-    ["orbs", "trail", "follow"], // back to the original three
+    ["vbeam"], // vbeam alone (fake removed again: easier, 2026-10-25)
+    ["orbs", "trail"], // follow removed again (2026-10-25)
     ["rot", "home", "orbs"], // back to the original three (still no vbeam: rot + vbeam is impossible)
 ];
 const SEQUENCES_HARD_EASED = [
