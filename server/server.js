@@ -48,6 +48,43 @@ const RESET_LIMIT = { max: 5, windowMs: 60 * 1000 }; // per IP (admin password g
 const RL_LIMIT = { max: 12, windowMs: 60 * 1000 }; // per IP: uploads of what the boss learned
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "mint"; // keep in sync with config.js unless the env var is set
 
+/* ---------- 不適切ワードフィルター ---------- */
+// 日本語・英語の不適切表現（読み替え・変形もある程度カバー）
+const BAD_WORDS = [
+    // 日本語 (ひらがな/カタカナ/漢字)
+    "うんこ", "うんち", "ちんこ", "ちんぽ", "まんこ", "おっぱい", "せっくす", "えっち",
+    "ちくび", "きんたま", "おちんちん", "むけちん", "しこ", "おなに", "ふぇら",
+    "くそ", "ばか", "あほ", "しね", "死ね", "殺す", "ころす", "きもい", "きもち悪い",
+    "クソ", "バカ", "アホ", "キモい", "ウンコ", "ウンチ", "チンコ", "チンポ", "マンコ",
+    "オッパイ", "セックス", "エッチ", "チクビ", "キンタマ", "オチンチン", "オナニ", "フェラ",
+    "ちんちん", "まんちん", "おまんこ", "おちんちん", "ちんぽこ",
+    // 英語
+    "fuck", "shit", "ass", "bitch", "bastard", "damn", "cunt", "dick", "cock",
+    "pussy", "nigger", "nigga", "faggot", "retard", "whore", "slut",
+    "penis", "vagina", "anus", "boob", "tit", "porn", "sex", "nude",
+    "kill", "die", "rape", "racist",
+];
+
+// 正規化して比較（全角→半角、大文字→小文字、スペース・記号除去）
+function normalizeForFilter(str) {
+    return str
+        .toLowerCase()
+        .replace(/[\s\-_・]/g, "")
+        // 全角英数→半角
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) =>
+            String.fromCharCode(c.charCodeAt(0) - 0xfee0),
+        )
+        // ひらがな→カタカナ統一（カタカナへ）
+        .replace(/[ぁ-ん]/g, (c) =>
+            String.fromCharCode(c.charCodeAt(0) + 0x60),
+        );
+}
+
+function containsBadWord(name) {
+    const normalized = normalizeForFilter(name);
+    return BAD_WORDS.some((w) => normalized.includes(normalizeForFilter(w)));
+}
+
 /* ---------- validation ---------- */
 function parseScore(body) {
     const b = body && typeof body === "object" ? body : {};
@@ -90,6 +127,7 @@ function parseScore(body) {
         .trim();
     name = [...name].slice(0, NAME_MAX).join("");
     if (!name) name = "名無し";
+    if (containsBadWord(name)) return bad("inappropriate name");
     const score = Scoring.compute(mode, {
         cleared,
         form,
@@ -301,7 +339,6 @@ function createApp(store, rl) {
     const PUBLIC_DIR = path.join(__dirname, "..", "public");
     const SITE_DIR = path.join(__dirname, "..", "site");
     const FILES = [
-        "style.css",
         "script.js",
         "config.js",
         "scoring.js",
@@ -318,11 +355,32 @@ function createApp(store, rl) {
     app.get("/play", (req, res) =>
         res.sendFile(path.join(PUBLIC_DIR, "index.html")),
     ); // ゲーム本体
+
+    // /beta: 実験用ルート。public/beta/ にあるファイルを優先し、なければ public/ にフォールバック
+    const BETA_DIR = path.join(PUBLIC_DIR, "beta");
+    app.use((req, res, next) =>
+        req.path === "/beta/" ? res.redirect(301, "/beta") : next(),
+    );
+    app.get("/beta", (req, res) =>
+        res.sendFile(path.join(BETA_DIR, "index.html")),
+    ); // betaゲーム本体
+    // /beta/〇〇.js , /beta/style.css: beta/ にあればそちら、なければ public/ にフォールバック
+    for (const f of [...FILES, "style.css"]) {
+        app.get("/beta/" + f, (req, res) => {
+            const betaFile = path.join(BETA_DIR, f);
+            if (fs.existsSync(betaFile)) {
+                res.sendFile(betaFile);
+            } else {
+                res.sendFile(path.join(PUBLIC_DIR, f));
+            }
+        });
+    }
+
     app.use(
         "/site",
         express.static(SITE_DIR, { fallthrough: true, index: false }),
     ); // 紹介ページの css / js
-    for (const f of FILES)
+    for (const f of [...FILES, "style.css"])
         app.get("/" + f, (req, res) => res.sendFile(path.join(PUBLIC_DIR, f)));
     app.get("/favicon.ico", (req, res) => res.status(204).end());
     // BGM / sound effects (audio/bgm/*.mp3, audio/se/*.mp3). Missing files simply answer 404 and the game stays silent

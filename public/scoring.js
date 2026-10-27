@@ -29,8 +29,8 @@
 
     // forms = number of forms of the mode, parMs = par time per form (ms)
     const MODES = {
-        hard: { forms: 7, parMs: [34000, 44000, 52000, 64000, 71000, 82000, 104000] }, // = boss HP x 200 ms (BOSS_HP_HARD_EASED)
-        normal: { forms: 4, parMs: [34000, 44000, 52000, 68000] },
+        hard: { forms: 7, parMs: [34000, 44000, 52000, 40000, 71000, 82000, 104000] }, // = boss HP x 200 ms (BOSS_HP_HARD_EASED, form4: 200)
+        normal: { forms: 4, parMs: [34000, 44000, 52000, 44000] }, // form4: 220 x 200 ms = 44000
     };
 
     // r: { cleared, form (1-based, the form reached), formMs, splits (cumulative ms per form, null = not defeated), hp }

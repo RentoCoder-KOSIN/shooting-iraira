@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
+        />
+        <title>世界一イライラするゲーム</title>
+        <link rel="stylesheet" href="/beta/style.css" />
+        <script src="/beta/scoring.js" defer></script>
+        <script src="/beta/config.js" defer></script>
+        <script src="/beta/rl-pretrained.js" defer></script>
+        <script src="/beta/rl.js" defer></script>
+        <script src="/beta/net.js" defer></script>
+        <script src="/beta/audio.js" defer></script>
+        <script src="/beta/ai.js" defer></script>
+        <script src="/beta/script.js" defer></script>
+    </head>
+    <body>
+        <!-- The game is drawn here by script.js -->
+        <canvas id="c" width="480" height="640"></canvas>
+
+        <!-- Admin overlay (Shift+@ to open). Styles are in style.css -->
+        <div id="admin" hidden>
+            <div
+                class="admin-box"
+                role="dialog"
+                aria-modal="true"
+                aria-label="admin"
+            >
+                <div id="admin-login">
+                    <h2>ADMIN</h2>
+                    <input
+                        id="admin-pass"
+                        type="password"
+                        autocomplete="off"
+                        placeholder="password"
+                    />
+                    <p id="admin-msg"></p>
+                    <button id="admin-ok">ログイン</button>
+                    <button class="sub" data-close>閉じる</button>
+                </div>
+                <div id="admin-panel" hidden>
+                    <h2>ADMIN PANEL</h2>
+                    <label
+                        ><input type="checkbox" id="admin-inv" />
+                        無敵モード</label
+                    >
+                    <label class="range">
+                        <span>攻撃力 ×<b id="admin-atk-val">1</b></span>
+                        <input type="range" id="admin-atk" min="1" max="20" step="1" value="1" />
+                    </label>
+                    <label class="range">
+                        <span>体力 <b id="admin-hp-val">10</b></span>
+                        <input type="range" id="admin-hp" min="1" max="50" step="1" value="10" />
+                    </label>
+                    <button id="admin-reset" class="danger">
+                        全スコアボードをリセット
+                    </button>
+                    <p id="admin-reset-msg"></p>
+                    <button id="admin-rl-reset" class="danger">
+                        ボスAI(RLモード)の学習をリセット
+                    </button>
+                    <p id="admin-rl-msg"></p>
+                    <button class="sub" data-close>閉じる (Esc)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Name entry after a run (opened by script.js). Styles are in style.css -->
+        <div id="score" hidden>
+            <div class="admin-box" role="dialog" aria-modal="true" aria-label="score">
+                <h2>記録を登録</h2>
+                <p id="score-result"></p>
+                <input id="score-name" type="text" autocomplete="off" placeholder="なまえ" />
+                <p id="score-msg"></p>
+                <button id="score-ok">登録</button>
+                <button class="sub" id="score-skip">登録しない</button>
+            </div>
+        </div>
+    </body>
+</html>
