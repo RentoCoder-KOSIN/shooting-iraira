@@ -1130,7 +1130,7 @@ const bossShot = (type, angle, speed, opts) =>
 const bossRing = (type, count, speed, offset, opts) =>
     ring(type, boss.x, boss.y + BOSS_MUZZLE_Y, count, speed, offset, opts);
 
-function beam({ x, y, angle, turn = 0, warn, dur, width, bounces = 0 }) {
+function beam({ x, y, angle, turn = 0, warn, dur, width, bounces = 0, follow = false }) {
     beams.push({
         x,
         y,
@@ -1140,6 +1140,7 @@ function beam({ x, y, angle, turn = 0, warn, dur, width, bounces = 0 }) {
         dur,
         w: width,
         refl: bounces,
+        fol: follow, // true: the warning line stays on the boss and is fixed the moment the beam is fired
         age: 0,
     });
 }
@@ -1369,6 +1370,10 @@ function updateBullets() {
 function updateBeams() {
     beams = beams.filter((b) => {
         b.age++;
+        if (b.fol && b.age <= b.warn) {
+            b.x = boss.x; // the warning line sticks to the boss ...
+            b.y = boss.y + BOSS_MUZZLE_Y; // ... and stops here when the beam comes out
+        }
         b.a += b.da;
         if (b.age > b.warn && b.age <= b.warn + b.dur) {
             const path = beamPath(b);

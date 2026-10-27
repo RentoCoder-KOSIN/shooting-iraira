@@ -569,7 +569,7 @@ const PATHS = {
  *    bossShot(type, angle, speed, opts)         one bullet from the boss
  *    bossRing(type, count, speed, offset, opts) a ring of bullets from the boss
  *    ring(type, x, y, count, speed, offset, opts)
- *    beam({ x, y, angle, turn, warn, dur, width, bounces })
+ *    beam({ x, y, angle, turn, warn, dur, width, bounces, follow })   follow: true = the warning line stays on the boss until the beam is fired
  *    later(frames, fn)                          run fn after some frames
  *    aim(x, y)                                  angle from (x, y) to the player
  *    aimFromBoss()                              angle from the boss to the player
@@ -910,6 +910,7 @@ const PATTERNS = {
                         dur: 70,
                         width: 12,
                         bounces: 3,
+                        follow: true, // the warning line stays on the boss, then the beam comes out of the boss
                     });
             }
             if (t % 60 === 30) bossRing("normal", 12, 2, t);

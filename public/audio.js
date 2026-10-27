@@ -28,7 +28,7 @@ const AUDIO = {
     bgm: {
         title: {}, // タイトル・モード選択・練習の選択画面
         select: {}, // 玉の選択画面
-        play: {}, // 戦闘中(形態ごとの曲が無い時はこれ)
+        play: { file: "audio/bgm/bgm.mp3" }, // 戦闘中(形態ごとの曲が無い時はこれ)
         form1: {},
         form2: {},
         form3: {},
@@ -58,7 +58,8 @@ const AUDIO = {
 };
 
 const Sound = (() => {
-    const hasAudio = typeof Audio !== "undefined" && typeof window !== "undefined";
+    const hasAudio =
+        typeof Audio !== "undefined" && typeof window !== "undefined";
     const KEY = "shootingAudio";
     const POOL = 4; // 同じ効果音を重ねて鳴らせる数
     const dead = new Set(); // 読み込めなかった音(ファイル無し) "bgm:title" / "se:hurt"
@@ -80,7 +81,11 @@ const Sound = (() => {
         try {
             localStorage.setItem(
                 KEY,
-                JSON.stringify({ muted, bgm: AUDIO.bgmVolume, se: AUDIO.seVolume }),
+                JSON.stringify({
+                    muted,
+                    bgm: AUDIO.bgmVolume,
+                    se: AUDIO.seVolume,
+                }),
             );
         } catch (_) {}
     };
@@ -175,7 +180,8 @@ const Sound = (() => {
     // 流したい曲(want)と、今流れている曲(cur)を合わせる
     function apply() {
         if (!hasAudio || !unlocked) return;
-        const name = want && want.find((n) => AUDIO.bgm[n] && !dead.has("bgm:" + n));
+        const name =
+            want && want.find((n) => AUDIO.bgm[n] && !dead.has("bgm:" + n));
         if (!name || muted) {
             stopCur();
             return;
@@ -201,7 +207,9 @@ const Sound = (() => {
     function bgm(...names) {
         const list = names.filter(Boolean);
         const same =
-            want && want.length === list.length && want.every((n, i) => n === list[i]);
+            want &&
+            want.length === list.length &&
+            want.every((n, i) => n === list[i]);
         if (same) return;
         want = list.length ? list : null;
         apply();
@@ -240,7 +248,9 @@ const Sound = (() => {
         getVolume: () => ({ bgm: AUDIO.bgmVolume, se: AUDIO.seVolume }),
         // 設定画面用: 効果音の音量を確かめる音を1つ鳴らす(ファイルがある音を previewSe の順に探す)
         preview() {
-            const name = AUDIO.previewSe.find((n) => AUDIO.se[n] && !dead.has("se:" + n));
+            const name = AUDIO.previewSe.find(
+                (n) => AUDIO.se[n] && !dead.has("se:" + n),
+            );
             if (name) se(name);
         },
         setMuted(v) {
