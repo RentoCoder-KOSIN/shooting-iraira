@@ -22,8 +22,9 @@
       <ul class="navbar-nav align-items-md-center gap-md-3">
         <li class="nav-item"><a class="nav-link" href="#about">ゲーム紹介</a></li>
         <li class="nav-item"><a class="nav-link" href="#details">詳細説明</a></li>
-        <li class="nav-item"><a class="nav-link" href="#form4">第4形態</a></li>
+        <li class="nav-item"><a class="nav-link" href="#practice">練習モード</a></li>
         <li class="nav-item"><a class="nav-link" href="#access">アクセス方法</a></li>
+        <li class="nav-item"><a class="nav-link" href="/beta">ベータ版</a></li>
         <li class="nav-item"><a class="btn btn-accent" href="/play">今すぐ遊ぶ</a></li>
       </ul>
     </div>
@@ -194,77 +195,59 @@
     </div>
   </section>
 
-  <!-- ===== 第4形態について ===== -->
-  <section id="form4" class="section-white py-6">
+  <!-- ===== 練習モードについて ===== -->
+  <section id="practice" class="section-white py-6">
     <div class="container">
-      <p class="eyebrow">FORM 4</p>
-      <h2 class="section-title">第4形態について</h2>
-      <p class="lead text-muted mb-5 narrow">通常モード・理不尽モードの第4形態は、他の形態と大きく異なる設計になっています。ビームが主体で、弾幕は少なめです。</p>
+      <p class="eyebrow">PRACTICE</p>
+      <h2 class="section-title">練習モードについて</h2>
+      <p class="lead text-muted mb-5 narrow">苦手な形態や攻撃だけを、何度でも練習できるモードです。ランキングには登録されず、途中でやめても何も失いません。</p>
 
       <div class="row g-4 mb-5">
         <div class="col-md-6"><div class="detail-box h-100">
           <h3>基本仕様</h3>
           <dl class="spec">
-            <dt>体力</dt><dd>他の形態より少なめ（短期決戦）</dd>
-            <dt>攻撃力</dt><dd>被ダメージが<strong>2倍</strong>。1発で♥が2つ減ります</dd>
-            <dt>攻撃スタイル</dt><dd>弾幕ではなく<strong>ビームが主体</strong>。弾は少量のみ</dd>
-            <dt>同時展開</dt><dd>2種のビームパターンが<strong>同時に進行</strong>します</dd>
+            <dt>始め方</dt><dd>モード選択で「練習モード」を選び、モードと形態を選びます</dd>
+            <dt>内容</dt><dd>選んだ形態だけを最初から戦います。ボスを倒すと「練習クリア」です</dd>
+            <dt>記録</dt><dd>ランキングやスコアには<strong>登録されません</strong></dd>
+            <dt>やり直し</dt><dd>ゲームオーバー後や練習クリア後に、すぐ同じ形態を再挑戦できます</dd>
           </dl>
         </div></div>
         <div class="col-md-6"><div class="detail-box h-100">
-          <h3>ビーム攻撃の流れ</h3>
-          <ol class="flow mb-0">
-            <li><strong>① デコイ予告線（赤い細線）</strong>が約1秒間表示されて消えます。当たり判定はありません。</li>
-            <li>約2秒の間隔をおいて、<strong>② 本命の予告線</strong>が別の位置に出て約1秒表示されます。</li>
-            <li>本命予告が消えた直後、<strong>ビームが放射</strong>されます（白い太線・当たると2ダメージ）。</li>
-          </ol>
-          <p class="text-muted small mt-3 mb-0">デコイと本命は位置が異なります。2回目の予告線をよく見て、そこから離れましょう。</p>
+          <h3>操作</h3>
+          <dl class="spec">
+            <dt>モード切替</dt><dd>A / D または ← →、タブをタップ</dd>
+            <dt>形態の選択</dt><dd>W / S または ↑ ↓、行をタップで開始</dd>
+            <dt>ポーズ</dt><dd>Esc または Space（Q で形態選択へ戻る）</dd>
+            <dt>戻る</dt><dd>練習中の Esc で形態選択へ、形態選択の Esc でモード選択へ</dd>
+          </dl>
         </div></div>
       </div>
 
-      <h3 class="sub-title">ビームパターン一覧</h3>
+      <h3 class="sub-title">練習できるモード</h3>
       <div class="table-responsive mb-5">
         <table class="table spec-table align-middle">
-          <thead><tr><th>パターン</th><th>①デコイ予告</th><th>②本命ビーム</th></tr></thead>
+          <thead><tr><th>タブ</th><th>練習できる内容</th></tr></thead>
           <tbody>
+            <tr><td class="fw-bold">理不尽モード</td><td>全7形態から1つを選んで練習します。</td></tr>
+            <tr><td class="fw-bold">通常モード</td><td>全4形態から1つを選んで練習します。</td></tr>
+            <tr><td class="fw-bold">RLモード</td><td>ボスAIが動きと攻撃を決める全7形態を練習します。</td></tr>
             <tr>
-              <td class="fw-bold">格子ビーム</td>
-              <td>縦4本＋横2本（外寄り位置）</td>
-              <td>縦2〜3本＋横2本（位置が変わる）</td>
-            </tr>
-            <tr>
-              <td class="fw-bold">反射ビーム</td>
-              <td>壁バウンド2本（浅い角度）</td>
-              <td>壁バウンド4本（角度変化・画面全体を走る）</td>
-            </tr>
-            <tr>
-              <td class="fw-bold">ロックオンビーム</td>
-              <td>今いる位置に十字線（見せかけ）</td>
-              <td>逃げた先を再ロック＋ボスから直線追加</td>
-            </tr>
-            <tr>
-              <td class="fw-bold">扇状ビーム</td>
-              <td>広角4本（どれが本命か不明）</td>
-              <td>3本に絞られる（左右どちら寄りか変化）</td>
-            </tr>
-            <tr>
-              <td class="fw-bold">封鎖ビーム</td>
-              <td>外側に広い柱2本</td>
-              <td>内側に締まる（中央1本 or 内側2本）</td>
+              <td class="fw-bold">いろんな攻撃<span class="badge-outline ms-2">ベータ版のみ</span></td>
+              <td>いろんな攻撃パターン16種を1つずつ練習します。体力と攻撃力は全部の攻撃で同じで、玉は降ってきません。</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="detail-box">
-        <h3>攻略のヒント</h3>
+        <h3>練習のコツ</h3>
         <ul class="flow mb-0">
-          <li><strong>デコイ（1回目の予告線）は無視する。</strong>最初に出る赤い線は「見せかけ」です。当たり判定もありません。</li>
-          <li><strong>本命（2回目の予告線）の位置を覚える。</strong>2回目の線が消えた直後にビームが来るので、そこから離れておきます。</li>
-          <li><strong>ロックオンビームには動き続けることが有効。</strong>デコイが消えた後も動き続けると、本命予告が出た時点の位置を狙われます。</li>
-          <li><strong>2パターンのビームが同時進行します。</strong>両方の安全地帯が重なる場所を探しましょう。</li>
-          <li><strong>攻撃力が2倍のため、被弾は1〜2発で致命的です。</strong>ビーム待機中の弾にも注意してください。</li>
+          <li><strong>まずは形態の攻撃を見る。</strong>最初は避けるより、どんな弾やビームが来るかを観察しましょう。</li>
+          <li><strong>苦手な形態を繰り返す。</strong>全形態をやり直さなくても、その形態だけ何度も挑戦できます。</li>
+          <li><strong>ポーズを使う。</strong>止めている間は弾もボスも進まないので、落ち着いて場面を整理できます。</li>
+          <li><strong>「いろんな攻撃」は /beta で試せます。</strong>開発中の新しい攻撃を先に遊べます。</li>
         </ul>
+        <div class="mt-4"><a class="btn btn-outline-dark" href="/beta">ベータ版で練習する</a></div>
       </div>
     </div>
   </section>
@@ -283,7 +266,10 @@
         <div class="cta-title">さあ、遊んでみよう。</div>
         <div class="cta-sub">ブラウザですぐ遊べます</div>
       </div>
-      <a id="play-link" class="btn btn-yellow btn-lg" href="/play">今すぐ遊ぶ</a>
+      <div class="d-flex flex-wrap gap-3">
+        <a id="play-link" class="btn btn-yellow btn-lg" href="/play">今すぐ遊ぶ</a>
+        <a class="btn btn-outline-light btn-lg" href="/beta">ベータ版を試す</a>
+      </div>
     </div>
   </section>
 </main>
