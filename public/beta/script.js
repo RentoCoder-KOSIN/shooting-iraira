@@ -1,5 +1,5 @@
 /* ============================================================================
- *  script.js - 世界一イライラするゲーム  (engine)
+ *  script.js - 世界一むずかしいゲームを作ろうとしたら理不尽なゲームができた  (engine)
  *
  *  Game loop, input, drawing. You rarely need to edit this file.
  *  All numbers / bullets / patterns / texts are in config.js (loaded before this file):
@@ -2478,12 +2478,13 @@ function drawOverlay() {
             ctx.font = "72px serif";
             ctx.textAlign = "center";
             ctx.fillText("👿", CX, 268);
-            drawText("世界一", CX, 323, 36, "#fff");
-            drawText("イライラするゲーム", CX, 368, 40, "#f55");
+            drawText("世界一むずかしいゲームを", CX, 312, 26, "#fff");
+            drawText("作ろうとしたら", CX, 342, 26, "#fff");
+            drawText("理不尽なゲームができた", CX, 388, 36, "#f55");
             drawText(
                 "難しいんじゃない。イライラするだけ。",
                 CX,
-                418,
+                426,
                 15,
                 "#889",
             );

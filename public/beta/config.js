@@ -1,5 +1,5 @@
 /* ============================================================================
- *  config.js - 世界一イライラするゲーム  (game values / bullets / patterns)
+ *  config.js - 世界一むずかしいゲームを作ろうとしたら理不尽なゲームができた  (game values / bullets / patterns)
  *
  *  Edit THIS file to change how the game feels. script.js (the engine) reads it.
  *  This file must be loaded BEFORE script.js (see index.html).
@@ -758,7 +758,7 @@ const BULLET_TYPES = {
         r: 5,
         color: "#ff4169",
         path: "boomerang",
-        turnAt: 66,
+        turnAt: 130, // frames before it turns back (was 66: it came back before it reached the player)
         paces: [],
         randomTempo: false,
     },
@@ -2042,12 +2042,13 @@ const VARIETY_ATTACKS = [
     },
     {
         name: "回転扇雨",
-        desc: "扇形の弾幕が回転しながら何度も放たれる",
+        desc: "扇形の弾幕が2つ同時に、反対向きから回転しながら放たれる",
         fire() {
             const e = vEmitter(),
                 a = vSecs() * 0.9;
-            for (let j = 0; j < 7; j++)
-                vShoot("v", e.x, e.y, a + (j - 3) * 0.19, 145 / 60);
+            for (let k = 0; k < 2; k++) // two fans at once, on opposite sides (half a turn apart)
+                for (let j = 0; j < 7; j++)
+                    vShoot("v", e.x, e.y, a + k * PI + (j - 3) * 0.19, 145 / 60);
         },
     },
     {

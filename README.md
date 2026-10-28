@@ -1,6 +1,6 @@
 # shooting-iraira
 
-世界一イライラするゲーム（html / css / js）。ランキング用サーバーは `server.js`。
+世界一むずかしいゲームを作ろうとしたら理不尽なゲームができた（html / css / js）。ランキング用サーバーは `server.js`。
 
 ## フォルダ構成
 
