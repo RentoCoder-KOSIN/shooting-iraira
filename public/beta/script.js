@@ -66,11 +66,13 @@ let shake = 0; // frames of screen shake left
 let bossFlash = 0; // frames the boss is drawn with a white flash (after being hit)
 let boss; // { x, y, hp, max }
 let bullets, beams, shots, orbs, queue, history;
+let hazards = []; // blast markers of the いろんな攻撃 patterns: { x, y, r, delay, life, age, done, burst } (see hazard())
 let gameMode = MODES[0]; // the chosen mode (see MODES in config.js)
 let modeIdx = 0; // highlighted entry on the mode select screen
 let practice = false; // true while playing in practice mode (never recorded)
 let practMode = 0; // practice screen: index in MODES
 let practForm = 0; // practice screen: highlighted form (0 = form 1)
+let practScroll = 0; // practice screen: the first form row that is shown (the いろんな攻撃 list is longer than the screen)
 let speedMul; // bullet speed multiplier (grows with some orbs)
 let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
 let phase; // progress: the form you are on (0 .. formCount() - 1). Score and form changes use this
@@ -122,8 +124,32 @@ const MODE_MENU = [
 const PRACTICE_IDX = MODES.length;
 
 // practice screens (all x positions follow the screen center)
-const practTab = (i) => ({ x: CX - 150 + i * 102, y: 190, w: 96, h: 40 }); // mode tabs (3 modes)
-const practRow = (i) => ({ x: CX - 150, y: 246 + i * 44, w: 300, h: 40 }); // one row per form
+// The practice screen has the real modes + the practice-only いろんな攻撃 category (VARIETY_MODE in config.js)
+const PRACT_MODES = [...MODES, VARIETY_MODE];
+const PRACT_ROWS = 7; // form rows shown at once; a longer list scrolls (W/S, wheel, the arrows on the right)
+const practTab = (i) => ({ x: CX - 152 + i * 77, y: 190, w: 74, h: 40 }); // mode tabs (4 tabs)
+const practRow = (i) => ({ x: CX - 150, y: 246 + (i - practScroll) * 44, w: 300, h: 40 }); // one row per form
+const practRowShown = (i) => i >= practScroll && i < practScroll + PRACT_ROWS;
+const practArrow = (dir) => ({ x: CX + 156, y: dir < 0 ? 246 : 246 + (PRACT_ROWS - 1) * 44, w: 34, h: 40 }); // dir -1 = up, 1 = down
+const practCanScroll = () => PRACT_MODES[practMode].bossHp.length > PRACT_ROWS;
+// the arrows / the wheel scroll the list without moving the highlighted row
+function practClampScroll() {
+    const n = PRACT_MODES[practMode].bossHp.length;
+    practScroll = Math.max(0, Math.min(practScroll, Math.max(0, n - PRACT_ROWS)));
+}
+// keep the highlighted row (and the scroll position) inside the list
+function practFit() {
+    const n = PRACT_MODES[practMode].bossHp.length;
+    practForm = Math.max(0, Math.min(practForm, n - 1));
+    if (practForm < practScroll) practScroll = practForm;
+    if (practForm >= practScroll + PRACT_ROWS) practScroll = practForm - PRACT_ROWS + 1;
+    practScroll = Math.max(0, Math.min(practScroll, Math.max(0, n - PRACT_ROWS)));
+}
+// the name of a form on screen: 第◯形態 normally, #NN + the attack's name in いろんな攻撃
+const formLabel = (i, mode = gameMode) =>
+    mode.uniform
+        ? "#" + String(i + 1).padStart(2, "0") + " " + mode.formTitles[i]
+        : "第" + FORM_NAMES[i] + "形態";
 const practBack = () => ({ x: 10, y: 596, w: 90, h: 32 });
 const practRetryBtn = () => ({ x: CX - 150, y: 450, w: 140, h: 46 }); // after game over / practice clear
 const practMenuBtn = () => ({ x: CX + 10, y: 450, w: 140, h: 46 });
@@ -158,7 +184,7 @@ function startPractice() {
     syncAdminSliders();
     practice = true;
     modeIdx = practMode;
-    gameMode = MODES[practMode];
+    gameMode = PRACT_MODES[practMode];
     speedMul = gameMode.startSpeedMul;
     phase = practForm;
     boss.hp = boss.max = bossHpOf(phase);
@@ -166,7 +192,7 @@ function startPractice() {
     player.hp = playerMaxHp;
     // the orb selection only happens after a boss defeat: practicing form 2 starts with the original selection
     RL.reset();
-    if (phase === 1) enterSelect(false);
+    if (phase === 1 && !gameMode.uniform) enterSelect(false); // (いろんな攻撃 has no orbs)
     else state = S.PLAY;
 }
 // leave the practice and go back to the form list
@@ -201,6 +227,7 @@ function resetGame() {
     player = { x: PLAYER_START.x, y: PLAYER_START.y, hp: playerMaxHp, inv: 0 };
     bullets = [];
     beams = [];
+    hazards = [];
     shots = [];
     orbs = [];
     queue = [];
@@ -243,7 +270,7 @@ function checkConfig() {
         ...ORB_ORDER_PATTERN,
     ])
         if (!ORBS[id]) fail('unknown orb "' + id + '" (see ORBS)');
-    for (const m of MODES) {
+    for (const m of [...MODES, VARIETY_MODE]) {
         if (!m.bossHp || !m.sequences)
             fail('mode "' + m.id + '" needs bossHp and sequences');
         if (m.sequences.length !== m.bossHp.length)
@@ -256,7 +283,7 @@ function checkConfig() {
                     m.bossHp.length +
                     ") must have the same length",
             );
-        if (m.bossHp.length > FORM_NAMES.length)
+        if (!m.uniform && m.bossHp.length > FORM_NAMES.length)
             fail('FORM_NAMES is too short for mode "' + m.id + '"');
         for (const form of m.sequences)
             for (const step of form)
@@ -857,6 +884,7 @@ const inButton = (p, b) =>
 // Any key that is not a movement key: only the secret key heals (once)
 function onOtherKey(e) {
     if (aiPlay) return; // the AI is playing: a human key press must not heal it
+    if (gameMode.uniform) return; // いろんな攻撃: no secret-key heal (the HP is the same for every attack)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const IGNORED_KEYS = [
         "w",
@@ -982,14 +1010,15 @@ window.addEventListener("keydown", (e) => {
     }
     if (state === S.PRACT && !e.repeat) {
         const k = e.key.toLowerCase();
-        const n = () => MODES[practMode].bossHp.length;
-        if (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright") {
-            practMode = (practMode + 1) % MODES.length;
-            practForm = Math.min(practForm, n() - 1);
-        }
+        const n = () => PRACT_MODES[practMode].bossHp.length;
+        if (k === "a" || k === "arrowleft")
+            practMode = (practMode + PRACT_MODES.length - 1) % PRACT_MODES.length;
+        if (k === "d" || k === "arrowright")
+            practMode = (practMode + 1) % PRACT_MODES.length;
         if (k === "w" || k === "arrowup")
             practForm = (practForm + n() - 1) % n();
         if (k === "s" || k === "arrowdown") practForm = (practForm + 1) % n();
+        practFit();
         if (k === "escape") state = S.MODE;
     } else if (practice && e.key === "Escape") {
         exitPractice(); // Esc while practicing: back to the form list
@@ -1036,14 +1065,23 @@ canvas.addEventListener("click", (e) => {
             state = S.TITLE;
         }
     } else if (state === S.PRACT) {
-        MODES.forEach((_, i) => {
+        PRACT_MODES.forEach((_, i) => {
             if (inButton(p, practTab(i))) {
                 practMode = i;
-                practForm = Math.min(practForm, MODES[i].bossHp.length - 1);
+                practScroll = 0;
+                practFit();
             }
         });
-        MODES[practMode].bossHp.forEach((_, i) => {
-            if (inButton(p, practRow(i))) {
+        if (practCanScroll()) {
+            // the arrows move the shown part of the list by one row
+            for (const dir of [-1, 1])
+                if (inButton(p, practArrow(dir))) {
+                    practScroll += dir;
+                    practClampScroll();
+                }
+        }
+        PRACT_MODES[practMode].bossHp.forEach((_, i) => {
+            if (practRowShown(i) && inButton(p, practRow(i))) {
                 practForm = i;
                 startPractice();
             }
@@ -1133,6 +1171,18 @@ const endSetDrag = () => {
 canvas.addEventListener("pointerup", endSetDrag);
 canvas.addEventListener("pointercancel", endSetDrag);
 
+// practice screen: the mouse wheel scrolls a long list (いろんな攻撃)
+canvas.addEventListener(
+    "wheel",
+    (e) => {
+        if (state !== S.PRACT || !practCanScroll()) return;
+        e.preventDefault();
+        practScroll += e.deltaY > 0 ? 1 : -1;
+        practClampScroll();
+    },
+    { passive: false },
+);
+
 /* ---- helpers used by the patterns ---- */
 const aim = (x, y, target = player) => Math.atan2(target.y - y, target.x - x);
 const aimFromBoss = () => aim(boss.x, boss.y);
@@ -1208,6 +1258,24 @@ function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, warn
         refl: bounces,
         age: 0,
         warnVis: warnVis ?? warn,
+    });
+}
+
+// A blast marker (used by the いろんな攻撃 patterns): a circle that warns for `delay` frames, then bursts
+// (calls burst(h), which usually fires bullets) and hurts whoever is inside it for `life` more frames.
+function hazard({ x, y, r, delay, life, burst }) {
+    hazards.push({ x, y, r, delay, life, burst, age: 0, done: false });
+}
+function updateHazards() {
+    hazards = hazards.filter((h) => {
+        h.age++;
+        if (!h.done && h.age >= h.delay) {
+            h.done = true;
+            if (h.burst) h.burst(h);
+        }
+        if (h.done && Math.hypot(h.x - player.x, h.y - player.y) < h.r)
+            hurtPlayer();
+        return h.age < h.delay + h.life;
     });
 }
 
@@ -1357,9 +1425,12 @@ function tauntSituation() {
     const bossRatio = boss.max > 0 ? Math.max(0, boss.hp) / boss.max : 1;
     const movingRatio = runFrames > 0 ? runStats.movingFrames / runFrames : 0;
 
-    if (phase === 0 && !detour) tags.add("f1");
-    if (phase >= 2) tags.add("deep");
-    if (phase === last) tags.add("last");
+    if (!gameMode.uniform) {
+        // (いろんな攻撃: the attack number says nothing about how far the player got)
+        if (phase === 0 && !detour) tags.add("f1");
+        if (phase >= 2) tags.add("deep");
+        if (phase === last) tags.add("last");
+    }
     if (secs < 20) tags.add("instant");
     if (secs >= 120) tags.add("long");
     if (fakeCount > 0) tags.add("fake");
@@ -1427,7 +1498,8 @@ function chooseGameOverTaunt() {
 function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
     Sound.se("hurt");
-    const formDmg = fightForm() === 3 ? 2 : 1; // 第4形態: 攻撃力UP (2倍ダメージ)
+    // 第4形態: 攻撃力UP (2倍ダメージ). いろんな攻撃(uniform)は全部の攻撃で被ダメージ一律(1)
+    const formDmg = fightForm() === 3 && !gameMode.uniform ? 2 : 1;
     player.hp -= formDmg * dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
     runStats.hits++;
@@ -1583,6 +1655,7 @@ function checkBossDefeated() {
     Sound.se("bossDefeat");
     bullets = [];
     beams = [];
+    hazards = [];
     queue = [];
     orbs = [];
     patTime = 0;
@@ -1634,6 +1707,7 @@ function updatePlay() {
     // From form 2: an orb falls at a fixed interval (fixed order, random position)
     if (
         phase >= ORB_DROP_FROM_FORM &&
+        !gameMode.uniform && // いろんな攻撃: no orbs
         frame % ORB_DROP_INTERVAL === ORB_DROP_OFFSET
     )
         spawnOrb(
@@ -1649,6 +1723,7 @@ function updatePlay() {
     runQueue();
     updateBullets();
     updateBeams();
+    updateHazards();
     updateOrbs();
 
     checkBossDefeated();
@@ -1671,6 +1746,7 @@ function sceneBgm() {
             return ["select", "play"];
         case S.PLAY:
         case S.GAG:
+            if (gameMode.uniform) return ["form1", "play"]; // いろんな攻撃: the same BGM for every attack
             return ["form" + (fightForm() + 1), "play"]; // form1..form7, or play when that form has no BGM
         case S.FCLEAR: // the fake CLEAR
         case S.WIN:
@@ -1969,6 +2045,26 @@ function drawField() {
             ctx.stroke();
         }
     }
+    // blast markers (いろんな攻撃): a warning circle that shrinks, then the red blast area
+    for (const h of hazards) {
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.r, 0, PI * 2);
+        if (h.done) {
+            ctx.fillStyle = "rgba(255,75,105,.28)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,75,105,.85)";
+        } else {
+            ctx.strokeStyle = "rgba(255,190,80,.65)";
+        }
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (!h.done) {
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, h.r * (1 - h.age / h.delay), 0, PI * 2);
+            ctx.strokeStyle = "rgba(255,220,120,.8)";
+            ctx.stroke();
+        }
+    }
     // streaks behind the orange wall while it drops (one path per streak style, so it stays light)
     for (const [len, w, a] of [
         [70, 2, 0.16],
@@ -2013,11 +2109,13 @@ function drawField() {
     ctx.fillRect(10, 10, ((W - 20) * Math.max(0, boss.hp)) / boss.max, 8);
     const formTitle = gameMode.formTitles && gameMode.formTitles[fightForm()]; // 理不尽 forms 5-7 have a subtitle
     drawText(
-        "第" +
-            FORM_NAMES[fightForm()] +
-            "形態" +
-            (formTitle ? "「" + formTitle + "」" : "") +
-            (detour ? "（戻された）" : ""),
+        gameMode.uniform
+            ? formLabel(fightForm()) // いろんな攻撃: "#01 螺旋追跡網"
+            : "第" +
+                  FORM_NAMES[fightForm()] +
+                  "形態" +
+                  (formTitle ? "「" + formTitle + "」" : "") +
+                  (detour ? "（戻された）" : ""),
         10,
         36,
         14,
@@ -2155,9 +2253,10 @@ function drawRunResult(y1, y2) {
               fmtTime(lastRun.totalMs) +
               "　残り体力 " +
               lastRun.hp
-            : "第" +
-              FORM_NAMES[lastRun.form - 1] +
-              "形態　生存 " +
+            : (gameMode.uniform
+                  ? formLabel(lastRun.form - 1)
+                  : "第" + FORM_NAMES[lastRun.form - 1] + "形態") +
+              "　生存 " +
               fmtTime(lastRun.totalMs)) +
             (lastRun.score != null
                 ? "　スコア " + fmtScore(lastRun.score)
@@ -2488,7 +2587,7 @@ function drawOverlay() {
                 14,
                 "#aab",
             );
-            MODES.forEach((m, i) => {
+            PRACT_MODES.forEach((m, i) => {
                 const b = practTab(i);
                 const sel = i === practMode;
                 ctx.fillStyle = sel ? m.color : "#2a2a3c";
@@ -2499,13 +2598,14 @@ function drawOverlay() {
                 drawText(
                     m.label,
                     b.x + b.w / 2,
-                    b.y + 26,
-                    13,
+                    b.y + 25,
+                    11,
                     sel ? "#000" : "#fff",
                 );
             });
-            const pm = MODES[practMode];
+            const pm = PRACT_MODES[practMode];
             pm.bossHp.forEach((hp, i) => {
+                if (!practRowShown(i)) return;
                 const b = practRow(i);
                 const sel = i === practForm;
                 ctx.fillStyle = sel ? pm.color : "#2a2a3c";
@@ -2515,23 +2615,53 @@ function drawOverlay() {
                 ctx.strokeRect(b.x, b.y, b.w, b.h);
                 const title = pm.formTitles && pm.formTitles[i];
                 drawText(
-                    "第" +
-                        FORM_NAMES[i] +
-                        "形態" +
-                        (title ? "「" + title + "」" : ""),
+                    pm.uniform
+                        ? formLabel(i, pm) // いろんな攻撃: "#01 螺旋追跡網"
+                        : "第" +
+                              FORM_NAMES[i] +
+                              "形態" +
+                              (title ? "「" + title + "」" : ""),
                     CX,
                     b.y + 26,
                     16,
                     sel ? "#000" : "#fff",
                 );
             });
+            if (practCanScroll()) {
+                // the list is longer than the screen: arrows on the right (▲ / ▼ gray when there is nothing more)
+                for (const dir of [-1, 1]) {
+                    const a = practArrow(dir);
+                    const more =
+                        dir < 0
+                            ? practScroll > 0
+                            : practScroll + PRACT_ROWS < pm.bossHp.length;
+                    ctx.fillStyle = more ? pm.color : "#2a2a3c";
+                    ctx.fillRect(a.x, a.y, a.w, a.h);
+                    drawText(dir < 0 ? "▲" : "▼", a.x + a.w / 2, a.y + 26, 16, more ? "#000" : "#667");
+                }
+                drawText(
+                    practForm + 1 + " / " + pm.bossHp.length,
+                    CX + 173,
+                    246 + (PRACT_ROWS * 44) / 2,
+                    11,
+                    "#889",
+                );
+            }
             drawText(
-                "A/D・←→ でモード切替　W/S・↑↓ で形態選択　Enter / タップで開始",
+                "A/D・←→ でモード切替　W/S・↑↓ で選択　Enter / タップで開始",
                 CX,
                 572,
                 12,
                 "#889",
             );
+            if (pm.uniform)
+                drawText(
+                    "体力・攻撃力は全部同じ（玉なし）",
+                    CX,
+                    588,
+                    11,
+                    "#fc4",
+                );
             const bk = practBack();
             ctx.fillStyle = "#334";
             ctx.fillRect(bk.x, bk.y, bk.w, bk.h);

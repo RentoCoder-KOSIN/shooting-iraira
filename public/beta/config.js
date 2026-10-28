@@ -715,6 +715,53 @@ const BULLET_TYPES = {
         turn: 0.03,
         randomTempo: false,
     },
+
+    // ---- いろんな攻撃(練習モード専用)の弾: 一定速度・固定タイミング(randomTempo なし) ----
+    v: { color: "#ff4169", paces: [], randomTempo: false }, // the standard bullet of these attacks
+    vSmall: { r: 4, color: "#ff4169", paces: [], randomTempo: false },
+    vHome: {
+        r: 7,
+        color: "#ff9b4d",
+        path: "turnHome",
+        homeFrames: 102,
+        turnRate: 0.03,
+        paces: [],
+        randomTempo: false,
+    },
+    vBounce: {
+        r: 5,
+        color: "#f9e66b",
+        path: "bounceEdge",
+        life: 300,
+        paces: [],
+        randomTempo: false,
+    },
+    vSplit: {
+        r: 9,
+        color: "#ff6fba",
+        path: "splitN",
+        splitAt: 63,
+        splitN: 5,
+        splitSpeed: 2.58,
+        paces: [],
+        randomTempo: false,
+    },
+    vDive: {
+        r: 10,
+        color: "#ff4169",
+        path: "diveStop",
+        stopLen: 21,
+        paces: [],
+        randomTempo: false,
+    },
+    vBack: {
+        r: 5,
+        color: "#ff4169",
+        path: "boomerang",
+        turnAt: 66,
+        paces: [],
+        randomTempo: false,
+    },
 };
 
 /* ============================================================================
@@ -773,6 +820,60 @@ const PACES = {
 const PATHS = {
     // goes straight (nothing to do)
     straight: () => {},
+
+    // ---- いろんな攻撃(練習モード専用)の軌道 ----
+    // turnHome: chases the player but can only turn `turnRate` radians per frame, for `homeFrames` frames
+    turnHome: (b) => {
+        if (b.age >= b.homeFrames) return;
+        const want = aim(b.x, b.y);
+        const cur = Math.atan2(b.vy, b.vx);
+        const d = Math.atan2(Math.sin(want - cur), Math.cos(want - cur));
+        const na = cur + Math.max(-b.turnRate, Math.min(b.turnRate, d));
+        const v = Math.hypot(b.vx, b.vy);
+        b.vx = Math.cos(na) * v;
+        b.vy = Math.sin(na) * v;
+    },
+
+    // bounceEdge: bounces off all four edges of the screen, disappears after `life` frames
+    bounceEdge: (b) => {
+        if (b.age > b.life) {
+            b.x = -999; // moving far away removes it (same trick as "splitter")
+            return;
+        }
+        if (b.x < b.r) b.vx = Math.abs(b.vx);
+        if (b.x > W - b.r) b.vx = -Math.abs(b.vx);
+        if (b.y < b.r) b.vy = Math.abs(b.vy);
+        if (b.y > H - b.r) b.vy = -Math.abs(b.vy);
+    },
+
+    // diveStop: falls slowly, stops at y = stopY for `stopLen` frames, then drops straight down at `diveV`
+    diveStop: (b) => {
+        if (b.stopAge === undefined) {
+            if (b.y >= b.stopY) {
+                b.stopAge = 0;
+                b.vx = 0;
+                b.vy = 0;
+            }
+        } else if (b.stopAge >= 0) {
+            b.stopAge++;
+            if (b.stopAge > b.stopLen) {
+                b.stopAge = -1; // diving: nothing more to do
+                b.vy = b.diveV;
+            }
+        }
+    },
+
+    // splitN: at age = splitAt it bursts into `splitN` small bullets (speed `splitSpeed`)
+    splitN: (b) => {
+        if (b.age === b.splitAt) {
+            const x = b.x,
+                y = b.y;
+            const n = b.splitN,
+                sp = b.splitSpeed;
+            b.x = -999;
+            later(1, () => vRing("vSmall", x, y, n, sp, 0));
+        }
+    },
 
     // aims at the player for `homeFrames` frames, then goes straight
     homing: (b) => {
@@ -1768,3 +1869,293 @@ const SEQUENCES_HARD_EASED = [
 MODES.find((m) => m.id === "hard").sequences = SEQUENCES_HARD_EASED;
 MODES.find((m) => m.id === "normal").sequences = SEQUENCES_EASED;
 MODES.find((m) => m.id === "rl").sequences = SEQUENCES_HARD; // same 7 forms; RL picks the steps itself
+
+/* ============================================================================
+ *  9. いろんな攻撃パターン (練習モード専用)
+ *
+ *  「超理不尽モードクリア可能版.html」にあった16種類の攻撃を、このゲームの仕組みに移したもの。
+ *  - 練習モードの4つ目のタブ「いろんな攻撃」に並ぶ。本番のモード(MODES)には入っていない。
+ *  - 1つの攻撃を繰り返し撃ち続ける。ボスを倒すとクリア。
+ *  - 体力と攻撃力は全部の攻撃で一律:
+ *      ボスの体力 = VARIETY_BOSS_HP, 被ダメージ = 1(第4形態の2倍ダメージも赤玉の倍率もなし),
+ *      玉(オーブ)は降ってこない、隠しキーの回復もなし。
+ *  - 弾の速さ・タイミングは元のHTML(px/秒)を px/フレームに直しただけ(÷60)。弾は一定速度。
+ * ========================================================================== */
+const VARIETY_BOSS_HP = 170; // every attack: the same boss HP (= the first form of the other modes)
+const VARIETY_BULLET_CAP = 420; // like the original: no new bullets while this many are on the screen
+const VARIETY_BEAM_CAP = 18; // like the original: at most this many beams at once
+const VARIETY_HAZARD_CAP = 40;
+const VARIETY_PERIOD = 29; // an attack fires every 29 frames (0.48 s, as in the original)
+
+const vClamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function vShoot(type, x, y, angle, speed, opts) {
+    if (bullets.length < VARIETY_BULLET_CAP)
+        shoot(type, x, y, angle, speed, opts);
+}
+function vRing(type, x, y, n, speed, offset = 0, opts) {
+    for (let i = 0; i < n; i++)
+        vShoot(type, x, y, offset + (i * 2 * PI) / n, speed, opts);
+}
+// aimed at the player (`lead` moves the target 22 px in that direction, as in the original)
+function vAimed(type, x, y, speed, opts, lead = 0) {
+    const tx = player.x + Math.cos(lead) * 22;
+    const ty = player.y + Math.sin(lead) * 22;
+    vShoot(type, x, y, Math.atan2(ty - y, tx - x), speed, opts);
+}
+function vBeam(o) {
+    if (beams.length < VARIETY_BEAM_CAP) beam(o);
+}
+function vHazard(o) {
+    if (hazards.length < VARIETY_HAZARD_CAP) hazard(o);
+}
+const vVertical = (x, warn, dur, width) =>
+    vBeam({ x, y: 0, angle: PI / 2, warn, dur, width }); // a beam from the top to the bottom
+const vHorizontal = (y, warn, dur, width) =>
+    vBeam({ x: 0, y, angle: 0, warn, dur, width }); // a beam from the left to the right
+// the point the bullets come from: it wanders around the upper half of the screen
+const vEmitter = () => ({
+    x: CX + Math.sin(frame * 0.0183) * Math.min(145, W * 0.3),
+    y: 190 + Math.cos(frame * 0.0133) * 80,
+});
+const vSecs = () => frame / 60; // seconds since the game loop started (the waves of the original used elapsed seconds)
+const vBlast = (h) => vRing("vSmall", h.x, h.y, 10, 135 / 60, Math.random() * 2 * PI);
+
+// n = how many times this attack has fired in the current loop of the pattern
+const VARIETY_ATTACKS = [
+    {
+        name: "螺旋追跡網",
+        desc: "逆回転する弾列が通路をねじりながら狭める",
+        fire() {
+            const e = vEmitter(),
+                a = vSecs() * 1.4;
+            for (let j = 0; j < 2; j++)
+                for (let q = 0; q < 2; q++)
+                    vShoot("v", e.x, e.y, a + j * PI + q * 0.15, (125 + q * 30) / 60);
+            vRing("vSmall", e.x, e.y, 7, 95 / 60, -a);
+        },
+    },
+    {
+        name: "蛇行弾壁",
+        desc: "切れ目の位置が蛇行し、遅れて第二の壁が重なる",
+        fire() {
+            const ts = vSecs(),
+                gap = player.x + Math.sin(ts * 1.5) * 120;
+            for (let x = 22; x < W; x += 34) {
+                if (Math.abs(x - gap) <= 66) continue;
+                const vx = (Math.sin(ts * 2 + x * 0.03) * 30) / 60,
+                    vy = 150 / 60;
+                vShoot("v", x, -8, Math.atan2(vy, vx), Math.hypot(vx, vy));
+            }
+            const gap2 = W - gap; // the second wall comes up from the bottom
+            for (let x = 22; x < W; x += 38) {
+                if (Math.abs(x - gap2) <= 58) continue;
+                const vx = (Math.sin(ts + x) * 22) / 60,
+                    vy = -145 / 60;
+                vShoot("v", x, H + 4, Math.atan2(vy, vx), Math.hypot(vx, vy));
+            }
+        },
+    },
+    {
+        name: "三連追尾珠",
+        desc: "複数の追尾珠が別角度から挟み込む",
+        fire() {
+            const ts = vSecs(),
+                e = vEmitter();
+            const xs = [60, CX, W - 60];
+            for (let j = 0; j < 3; j++)
+                vAimed("vHome", xs[j], 35 + (j % 2) * 60, (120 + j * 16) / 60, {}, Math.sin(ts + j) * 0.6);
+            vRing("vSmall", e.x, e.y, 5, 82 / 60, ts * 0.8);
+        },
+    },
+    {
+        name: "掃引ビーム",
+        desc: "長射程ビームが画面を掃き、次の掃引が逆から来る",
+        fire() {
+            const ts = vSecs();
+            vVertical(vClamp(player.x + Math.sin(ts * 1.4) * 180, 35, W - 35), 21, 54, 24);
+            vHorizontal(vClamp(player.y + Math.cos(ts * 1.2) * 100, 45, H - 45), 18, 42, 22);
+        },
+    },
+    {
+        name: "遅延マーカー",
+        desc: "現在地へ予告し、爆発の後に追撃弾を発生させる",
+        fire() {
+            const e = vEmitter();
+            vHazard({
+                x: player.x + Math.sin(vSecs() * 2) * 65,
+                y: player.y - 35,
+                r: 38,
+                delay: 27,
+                life: 25,
+                burst: vBlast,
+            });
+            vAimed("v", e.x, e.y, 155 / 60);
+        },
+    },
+    {
+        name: "跳弾三角網",
+        desc: "壁で反射する弾が三角形の軌道で交差する",
+        fire() {
+            const e = vEmitter();
+            for (let j = 0; j < 3; j++) {
+                const a = vSecs() * 1.7 + j * 2.094;
+                vShoot("vBounce", e.x + Math.cos(a) * 40, e.y + Math.sin(a) * 40, a + 1.1, 155 / 60);
+            }
+        },
+    },
+    {
+        name: "二段分裂花",
+        desc: "大弾が分裂し、小弾が花のように広がる",
+        fire() {
+            const e = vEmitter();
+            for (let j = 0; j < 3; j++)
+                vShoot("vSplit", e.x, e.y, vSecs() * 1.1 + j * 2.1, 105 / 60);
+        },
+    },
+    {
+        name: "縦横格子",
+        desc: "縦横レーザーの安全セルが段階的に移動する",
+        fire() {
+            const ts = vSecs();
+            const safeX = (47 + ts * 60) % W,
+                safeY = (23 + ts * 42) % H;
+            const step = Math.max(82, W / 7); // wide screens: fewer beams (the beam cap is 18)
+            for (let x = 35; x < W; x += step)
+                if (Math.abs(x - safeX) > 29) vVertical(x, 15, 33, 17);
+            for (let y = 35; y < H; y += 76)
+                if (Math.abs(y - safeY) > 26) vHorizontal(y, 15, 33, 17);
+        },
+    },
+    {
+        name: "停止急降下",
+        desc: "波状の珠が停止し、短い予告後に真下へ急降下する",
+        fire(n) {
+            const sx = 60 + ((n * 211 + 97) % Math.max(1, W - 120));
+            vShoot("vDive", sx, 20, PI / 2, 80 / 60, {
+                vx: ((Math.sin(vSecs() * 2) * 65) / 60) * speedMul,
+                vy: (80 / 60) * speedMul,
+                stopY: 180 + ((n * 53) % 110),
+                diveV: (310 / 60) * speedMul,
+            });
+            vAimed("v", W - sx, 40, 120 / 60);
+        },
+    },
+    {
+        name: "回転扇雨",
+        desc: "扇形の弾幕が回転しながら何度も放たれる",
+        fire() {
+            const e = vEmitter(),
+                a = vSecs() * 0.9;
+            for (let j = 0; j < 7; j++)
+                vShoot("v", e.x, e.y, a + (j - 3) * 0.19, 145 / 60);
+        },
+    },
+    {
+        name: "収縮リング",
+        desc: "複数リングが広がった後、別方向から収縮する",
+        fire() {
+            const e = vEmitter(),
+                ts = vSecs();
+            for (let j = 0; j < 3; j++) {
+                const r = 65 + j * 45,
+                    ang = ts * 0.55 + j * 1.8;
+                vHazard({
+                    x: e.x + Math.cos(ang) * r,
+                    y: e.y + Math.sin(ang) * r,
+                    r: 28,
+                    delay: 17,
+                    life: 23,
+                    burst: (h) => {
+                        vBlast(h);
+                        vRing("vSmall", h.x, h.y, 8, 90 / 60, Math.random() * 2 * PI);
+                    },
+                });
+            }
+            vRing("vSmall", e.x, e.y, 6, 105 / 60, ts);
+        },
+    },
+    {
+        name: "左右クロスファイア",
+        desc: "左右の射線が交差し、時間差で高さをずらす",
+        fire() {
+            for (let j = 0; j < 4; j++) {
+                const sy = (70 + j * 115) * (H / 560);
+                vAimed("v", 8, sy, 185 / 60);
+                vAimed("v", W - 8, H - sy, 185 / 60);
+            }
+        },
+    },
+    {
+        name: "追尾ビームロック",
+        desc: "照準が追尾してから固定され、長いビームを放つ",
+        fire() {
+            const e = vEmitter();
+            vVertical(vClamp(player.x + Math.sin(vSecs() * 1.5) * 110, 24, W - 24), 25, 45, 31);
+            vAimed("vHome", e.x, e.y, 130 / 60, { r: 5 });
+        },
+    },
+    {
+        name: "安全地帯リレー",
+        desc: "安全な切れ目が移動し、古い位置へ追撃が入る",
+        fire() {
+            const gap = (13 + vSecs() * 105) % W;
+            for (let x = 20; x < W; x += 27)
+                if (Math.abs(x - gap) > 47)
+                    vShoot("v", x, -5, PI / 2, 170 / 60, { r: 4.5 });
+            vHazard({ x: gap, y: H - 70, r: 38, delay: 33, life: 24, burst: vBlast });
+        },
+    },
+    {
+        name: "反転ブーメラン",
+        desc: "外へ進んだ弾が戻り、往路と復路を塞ぐ",
+        fire() {
+            const e = vEmitter(),
+                a = Math.atan2(player.y - e.y, player.x - e.x);
+            for (let j = 0; j < 5; j++)
+                vShoot("vBack", e.x, e.y, a + j * 0.48 - 1.0, 145 / 60);
+        },
+    },
+    {
+        name: "四隅連動砲",
+        desc: "四隅から順番に撃ち、最後に中央で軌道が交わる",
+        fire() {
+            const corners = [
+                [18, 18],
+                [W - 18, 18],
+                [18, H - 18],
+                [W - 18, H - 18],
+            ];
+            corners.forEach((p, j) =>
+                vAimed("v", p[0], p[1], (150 + j * 12) / 60, {}, (j * PI) / 2),
+            );
+            vRing("vSmall", W / 2, H / 2, 8, 115 / 60, vSecs() * 0.6);
+        },
+    },
+];
+
+// Register every attack as a pattern ("var0" ... "var15"): it fires every VARIETY_PERIOD frames, forever
+VARIETY_ATTACKS.forEach((a, i) => {
+    PATTERNS["var" + i] = {
+        duration: VARIETY_PERIOD * 10,
+        run(t) {
+            if (t % VARIETY_PERIOD === 0) a.fire((t / VARIETY_PERIOD) | 0);
+        },
+    };
+});
+
+// The practice-only "mode": one form per attack. Same HP for all, `uniform` = same damage, no orbs (see script.js)
+const VARIETY_MODE = {
+    id: "variety",
+    label: "いろんな攻撃",
+    desc: "いろんな攻撃パターンを1つずつ練習（記録なし）",
+    color: "#fc4",
+    uniform: true,
+    bossHp: VARIETY_ATTACKS.map(() => VARIETY_BOSS_HP),
+    sequences: VARIETY_ATTACKS.map((_, i) => [["var" + i]]),
+    formTitles: VARIETY_ATTACKS.map((a) => a.name),
+    detourMaxForm: -1,
+    startSpeedMul: 1.0, // the speeds of the original are used as they are
+    bossHealRatio: 0,
+    redDmgMul: 1,
+    ranked: false,
+};
