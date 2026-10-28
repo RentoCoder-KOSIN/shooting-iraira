@@ -15,6 +15,8 @@ const Net = (() => {
         snap: null, // latest screen of the watched player
         watching: null, // id of the watched player
         endedAt: 0, // Date.now() when the watched player stopped (0 = still playing)
+        meddleReadyAt: 0, // Date.now() when this spectator may press a meddling button again
+        onMeddle: null, // set by script.js (/beta): called with (kind, index) when a spectator sent something to this player
     };
 
     const available = () => typeof WebSocket !== "undefined" && typeof SCORE_ENABLED !== "undefined" && SCORE_ENABLED;
@@ -47,6 +49,15 @@ const Net = (() => {
                 api.listAt = Date.now();
             } else if (m.t === "snap") api.snap = m.s;
             else if (m.t === "end") api.endedAt = Date.now();
+            else if (m.t === "meddle") {
+                if (m.ok === undefined) {
+                    // a spectator sent this to me (the player)
+                    if (api.onMeddle) api.onMeddle(m.k, m.i);
+                } else if (typeof m.wait === "number") {
+                    // the answer to my own button press: how long until I may press again
+                    api.meddleReadyAt = Date.now() + Math.min(60000, Math.max(0, m.wait));
+                }
+            }
         };
         ws.onclose = () => {
             ws = null;
@@ -76,6 +87,11 @@ const Net = (() => {
         api.snap = null;
         api.endedAt = 0;
         send({ t: "watch", id });
+    };
+    // a spectator's button: kind "fake" | "dark" | "taunt" (the server checks it and enforces the cooldown)
+    api.meddle = (k, i = 0) => {
+        api.meddleReadyAt = Date.now() + 1500; // until the server answers (stops double clicks)
+        send({ t: "meddle", k, i });
     };
     api.unwatch = () => {
         api.watching = null;

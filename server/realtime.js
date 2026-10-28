@@ -8,6 +8,8 @@
  *    { t: "list" }     who is playing?                { t: "list", players: [{ id, mode, form, hp }] }
  *    { t: "watch", id } / { t: "unwatch" }            { t: "snap", s }            screen of the watched player
  *                                                     { t: "end" }                the watched player stopped
+ *    { t: "meddle", k, i }  a spectator's button      { t: "meddle", k, i }       (to the watched player) fake / dark / taunt
+ *                                                     { t: "meddle", ok, wait }   (to the spectator) cooldown left, in ms
  *
  *  The game runs in the browser, so every "snap" is untrusted: sanitizeSnap() rebuilds it from
  *  validated numbers / known colours only (spectators never receive raw client data).
@@ -22,6 +24,12 @@ const MSG_LIMIT = 60; // messages per second per connection (a player sends ~20 
 const STALE_MS = 10000; // a player without snaps for this long is not "playing" any more
 const LIST_MAX = 20;
 const MODE_IDS = ["hard", "normal", "rl"];
+// spectator buttons (/beta): only these kinds, only one per spectator every 8 s, and the same player is
+// never disturbed more than once per 2.5 s however many people are watching. The taunt text is NOT sent:
+// "i" is just the index of a line the player's own game already has.
+const MEDDLE_KINDS = new Set(["fake", "dark", "taunt"]);
+const MEDDLE_WATCHER_CD = 8000;
+const MEDDLE_TARGET_CD = 2500;
 
 /* ---------- snapshot validation ---------- */
 const COLOR = /^#[0-9a-fA-F]{3,8}$/;
@@ -79,7 +87,9 @@ function sanitizeSnap(s) {
         const y = int(orb[1], -300, 3000);
         if (x !== null && y !== null) o.push([x, y, orb[2]]);
     }
-    return { w, m: s.m, f, d: s.d ? 1 : 0, k: s.k ? 1 : 0, l: s.l ? 1 : 0, p: player, b: boss, g, e, sh, o };
+    // speech bubble (plain text only, short), darkness flag, and "this build accepts spectator buttons"
+    const q = typeof s.q === "string" ? s.q.replace(/[\u0000-\u001f\u007f<>]/g, "").slice(0, 48) : "";
+    return { w, m: s.m, f, d: s.d ? 1 : 0, k: s.k ? 1 : 0, l: s.l ? 1 : 0, p: player, b: boss, g, e, sh, o, q, dk: s.dk ? 1 : 0, mb: s.mb ? 1 : 0 };
 }
 
 /* ---------- hub ---------- */
@@ -187,6 +197,16 @@ function attach(server) {
             c.watching = target.id;
         } else if (m.t === "unwatch") {
             stopWatching(c);
+        } else if (m.t === "meddle") {
+            const target = c.watching !== null ? clients.get(c.watching) : null;
+            const idx = Number.isInteger(m.i) && m.i >= 0 && m.i <= 15 ? m.i : null; // out of range = rejected, not clamped
+            if (!target || !isPlaying(target, now) || !MEDDLE_KINDS.has(m.k) || idx === null) return;
+            const wait = Math.max(c.meddleAt + MEDDLE_WATCHER_CD - now, target.meddleAt + MEDDLE_TARGET_CD - now, 0);
+            if (wait > 0) return send(c, { t: "meddle", ok: false, wait });
+            c.meddleAt = now;
+            target.meddleAt = now;
+            send(target, { t: "meddle", k: m.k, i: idx });
+            send(c, { t: "meddle", ok: true, wait: MEDDLE_WATCHER_CD });
         }
     }
 
@@ -195,7 +215,7 @@ function attach(server) {
         if (clients.size >= MAX_CONNECTIONS || (ipCount.get(ip) || 0) >= MAX_PER_IP) return ws.close(1013);
         ipCount.set(ip, (ipCount.get(ip) || 0) + 1);
 
-        const c = { id: nextId++, ws, ip, playing: null, watching: null, count: 0, windowStart: Date.now(), alive: true };
+        const c = { id: nextId++, ws, ip, playing: null, watching: null, count: 0, windowStart: Date.now(), alive: true, meddleAt: 0 };
         clients.set(c.id, c);
         send(c, { t: "hello", id: c.id });
         scheduleOnline();

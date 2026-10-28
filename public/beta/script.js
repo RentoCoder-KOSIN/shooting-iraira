@@ -99,7 +99,7 @@ let lastRun; // the finished run: { mode, form, cleared, formMs, totalMs, splits
 let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
 let scoreOpen = false; // the name entry panel is open
 // --- GAME OVER taunt (beta): what the boss says depends on how the player played (see chooseGameOverTaunt) ---
-let runStats = { hits: 0, hitFrames: [], movingFrames: 0 }; // this run: hits taken (run frame of each), frames the player moved
+let runStats = { hits: 0, hitFrames: [], movingFrames: 0, grazes: 0 }; // this run: hits taken (run frame of each), frames the player moved
 let loseStreak = 0; // losses in a row in this browser session (a real CLEAR resets it; practice / AI runs do not count)
 let prevSurviveFrames = null; // survival (frames) of the previous loss in the streak, null = none yet
 let recentTaunts = []; // the last few lines shown, so the same line does not come twice in a row
@@ -250,7 +250,8 @@ function resetGame() {
     invincible = false; // admin mode is NOT carried over to the next run
     adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
-    runStats = { hits: 0, hitFrames: [], movingFrames: 0 };
+    runStats = { hits: 0, hitFrames: [], movingFrames: 0, grazes: 0 };
+    betaReset(); // /beta: graze gauge, boss habit, viewer effects start over
     lastRun = null;
     runToken++;
     closeScore();
@@ -692,6 +693,7 @@ async function fetchScores(force = false, mode = boardMode) {
 
 // Called when a real game over / real CLEAR happens
 function finishRun(cleared) {
+    habitSave(); // /beta: the boss keeps what it learned
     if (cleared && !practice && !aiPlay) {
         loseStreak = 0; // the boss's "また君だ" lines start over after a win
         prevSurviveFrames = null;
@@ -1075,6 +1077,7 @@ window.addEventListener("keydown", (e) => {
         openWatchList();
     if (state === S.WLIST && e.key === "Escape") state = S.TITLE;
     if (state === S.WATCH && e.key === "Escape") openWatchList();
+    if (state === S.WATCH && !e.repeat && ["1", "2", "3"].includes(e.key)) sendMeddle(+e.key - 1);
     if (state === S.TITLE && SCORE_ENABLED && !e.repeat) {
         const k = e.key.toLowerCase();
         // A / D / arrows / Tab: switch between the two rankings
@@ -1201,6 +1204,10 @@ canvas.addEventListener("click", (e) => {
         if (inButton(p, watchBack())) state = S.TITLE;
     } else if (state === S.WATCH) {
         if (inButton(p, watchBack())) openWatchList();
+        else {
+            const i = MEDDLE_BUTTONS.findIndex((_, j) => inButton(p, meddleBtn(j)));
+            if (i >= 0) sendMeddle(i);
+        }
     } else if (state === S.TITLE && inButton(p, settingsBtn())) {
         openSettings();
     } else if (state === S.TITLE && inButton(p, aiBtn())) {
@@ -1648,7 +1655,7 @@ function updateShots() {
             Math.abs(s.x - boss.x) < BOSS_HIT_HALF_W &&
             Math.abs(s.y - boss.y) < BOSS_HIT_HALF_H
         ) {
-            boss.hp -= attackMul; // 1 normally, more with the admin slider
+            boss.hp -= attackMul * (grazePower > 0 ? GRAZE_POWER_MUL : 1); // 1 normally, more with the admin slider / graze power-up
             bossFlash = 3;
             Sound.se("bossHit");
             burstFx(s.x, s.y, "#9ef", 2, 2.5, 10); // tiny sparks at the hit point
@@ -1705,8 +1712,12 @@ function updateBullets() {
         b.age++;
         b.x += b.vx * f;
         b.y += b.vy * f;
-        if (Math.hypot(b.x - player.x, b.y - player.y) < b.r + PLAYER_HIT_R)
-            hurtPlayer();
+        const d = Math.hypot(b.x - player.x, b.y - player.y);
+        if (d < b.r + PLAYER_HIT_R) hurtPlayer();
+        else if (!b.grazed && b.type !== "wall" && d < b.r + PLAYER_HIT_R + GRAZE_EXTRA_R) {
+            b.grazed = true; // a bullet counts once
+            addGraze(GRAZE_BULLET_PT);
+        }
         return b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < H + 20;
     });
 }
@@ -1717,13 +1728,17 @@ function updateBeams() {
         b.a += b.da;
         if (b.age > b.warn && b.age <= b.warn + b.dur) {
             const path = beamPath(b);
+            let near = false;
+            let hit = false;
             for (let i = 0; i < path.length - 1; i++) {
-                if (
-                    distToSegment(player.x, player.y, path[i], path[i + 1]) <
-                    b.w / 2 + PLAYER_HIT_R
-                )
+                const d = distToSegment(player.x, player.y, path[i], path[i + 1]);
+                const lim = b.w / 2 + PLAYER_HIT_R;
+                if (d < lim) {
+                    hit = true;
                     hurtPlayer();
+                } else if (d < lim + GRAZE_EXTRA_R) near = true;
             }
+            if (near && !hit) addGraze(GRAZE_BEAM_PT); // standing right next to a live beam
         }
         return b.age <= b.warn + b.dur;
     });
@@ -1733,6 +1748,12 @@ function updateOrbs() {
     orbs = orbs.filter((o) => {
         o.y += ORB_FALL_SPEED;
         if (Math.hypot(o.x - player.x, o.y - player.y) < ORB_PICK_R) {
+            if (o.fake) {
+                // a decoy sent by a viewer: a grey puff and nothing else
+                burstFx(o.x, o.y, "#889", 8, 2.5, 16);
+                saySpeech("偽物でしたｗ", 90);
+                return false;
+            }
             orbFx(o.x, o.y, ORBS[o.id].color);
             takeOrb(o.id);
             return false;
@@ -1784,6 +1805,223 @@ function checkBossDefeated() {
     }
 }
 
+/* ============================================================================
+ *  /beta 追加機能:  1. かすりゲージ   2. ボスが癖を覚える   3. 視聴者介入
+ *  設定値は config.js（GRAZE_* / HABIT_* / MEDDLE_* / VIEWER_TAUNTS）
+ * ========================================================================== */
+let grazeGauge = 0; // 0 .. GRAZE_MAX
+let grazePower = 0; // frames left of the attack-up (0 = off)
+let speech = null; // the boss's speech bubble: { text, t } (t = frames left)
+let darkTimer = 0; // frames of darkness left (a viewer sent it)
+let lastMeddle = -1e9; // frame of the last viewer intervention that was applied
+let habitHeat = habitLoad(); // frames the player stayed in each screen cell (HABIT_COLS x HABIT_ROWS)
+let habitClock = 0; // frames of this run (used for the hunt timing)
+let habitNext = HABIT_FIRST; // habitClock at which the boss may hunt your favourite spot next
+let habitCount = 0; // hunts so far in this run (picks the line)
+let meddleMsg = null; // watch screen: the small message after pressing a button
+
+const HABIT_KEY = "iraira.beta.habit.v1";
+function habitLoad() {
+    try {
+        const a = JSON.parse(localStorage.getItem(HABIT_KEY));
+        if (Array.isArray(a) && a.length === HABIT_COLS * HABIT_ROWS && a.every(Number.isFinite)) return a;
+    } catch (_) {}
+    return Array(HABIT_COLS * HABIT_ROWS).fill(0);
+}
+function habitSave() {
+    try {
+        localStorage.setItem(HABIT_KEY, JSON.stringify(habitHeat.map((v) => Math.round(v * 10) / 10)));
+    } catch (_) {}
+}
+
+// every new run: the gauge and effects start over, and what the boss remembers from before counts half
+function betaReset() {
+    grazeGauge = 0;
+    grazePower = 0;
+    speech = null;
+    darkTimer = 0;
+    lastMeddle = -1e9;
+    habitHeat = habitHeat.map((v) => v * 0.5);
+    habitClock = 0;
+    habitNext = HABIT_FIRST;
+    habitCount = 0;
+}
+
+/* ---- 1. graze: the gauge fills when you slip past bullets / beams; full = nearby bullets vanish + attack up ---- */
+function addGraze(pt) {
+    if (state !== S.PLAY || player.inv > 0) return; // no points while invincible (standing in bullets is not skill)
+    runStats.grazes += pt;
+    grazeGauge += pt;
+    if (grazeGauge >= GRAZE_MAX) grazeBurst();
+}
+function grazeBurst() {
+    grazeGauge = 0;
+    grazePower = GRAZE_POWER_FRAMES;
+    // the orange wall stays (the attack order depends on it); everything else close to you is erased
+    bullets = bullets.filter(
+        (b) => b.type === "wall" || Math.hypot(b.x - player.x, b.y - player.y) > GRAZE_BLAST_R,
+    );
+    ringFx(player.x, player.y, "#fd3", GRAZE_BLAST_R, 26);
+    ringFx(player.x, player.y, "#fff", GRAZE_BLAST_R * 0.6, 18);
+    burstFx(player.x, player.y, "#fd3", 16, 4, 24);
+    Sound.se("decide");
+}
+
+/* ---- 2. habit: the boss learns where you like to stand, says so, and drops blast markers there ---- */
+const habitCell = (x, y) =>
+    Math.max(0, Math.min(HABIT_ROWS - 1, ((y / H) * HABIT_ROWS) | 0)) * HABIT_COLS +
+    Math.max(0, Math.min(HABIT_COLS - 1, ((x / W) * HABIT_COLS) | 0));
+const habitCenter = (i) => ({
+    x: (((i % HABIT_COLS) + 0.5) * W) / HABIT_COLS,
+    y: ((((i / HABIT_COLS) | 0) + 0.5) * H) / HABIT_ROWS,
+});
+// the cell you stay in most, or null while the boss has not seen enough / you do not favour one place
+function habitFavorite() {
+    let total = 0;
+    let best = 0;
+    let bi = 0;
+    habitHeat.forEach((v, i) => {
+        total += v;
+        if (v > best) {
+            best = v;
+            bi = i;
+        }
+    });
+    if (total < HABIT_MIN_TOTAL || best / total < HABIT_MIN_SHARE) return null;
+    return bi;
+}
+function habitHunt() {
+    // never on top of the orange wall or a live beam / blast: that was impossible to dodge before
+    if (bullets.some((b) => b.type === "wall") || beams.length || hazards.length) {
+        habitNext = habitClock + 90;
+        return;
+    }
+    const cell = habitFavorite();
+    if (cell === null) {
+        habitNext = habitClock + 300;
+        return;
+    }
+    const c = habitCenter(cell);
+    const cw = W / HABIT_COLS;
+    const ch = H / HABIT_ROWS;
+    const name = HABIT_NAMES[(cell / HABIT_COLS) | 0][cell % HABIT_COLS];
+    saySpeech(HABIT_LINES[habitCount++ % HABIT_LINES.length].replace("{n}", name), HABIT_SPEECH_FRAMES);
+    const spots = [
+        c,
+        { x: c.x - cw * 0.28, y: c.y + (Math.random() - 0.5) * ch * 0.5 },
+        { x: c.x + cw * 0.28, y: c.y + (Math.random() - 0.5) * ch * 0.5 },
+    ];
+    for (const q of spots) hazard({ x: q.x, y: q.y, r: 62, delay: HABIT_WARN, life: 20 });
+    habitNext = habitClock + HABIT_INTERVAL;
+}
+
+/* ---- 3. viewers: a spectator pressed a button (net.js -> here). Only while this run is being broadcast ---- */
+function meddleReceive(k, i) {
+    if (!isBroadcasting() || state !== S.PLAY || paused || adminOpen) return;
+    if (frame - lastMeddle < MEDDLE_PLAYER_GAP) return; // the server also limits this; this is the second lock
+    if (k === "fake") {
+        // decoy orbs that look like the real ones; picking one up does nothing
+        for (let n = 0; n < MEDDLE_FAKE_ORBS; n++)
+            orbs.push({
+                x: ORB_MARGIN_X + Math.random() * (W - ORB_MARGIN_X * 2),
+                y: -10 - n * 40,
+                id: pick(SELECT_ORBS),
+                fake: true,
+            });
+    } else if (k === "dark") darkTimer = MEDDLE_DARK_FRAMES;
+    else if (k === "taunt")
+        saySpeech(VIEWER_TAUNTS[Number.isInteger(i) ? Math.abs(i) % VIEWER_TAUNTS.length : 0], MEDDLE_SPEECH_FRAMES);
+    else return;
+    lastMeddle = frame;
+}
+if (typeof Net !== "undefined") Net.onMeddle = meddleReceive;
+
+// watch screen (spectator side): three buttons at the bottom of the picture
+const meddleBtn = (i) => {
+    const bw = (W - 40) / 3;
+    return { x: 20 + i * bw, y: H - 98, w: bw - 8, h: 34 };
+};
+function sendMeddle(i) {
+    const s = Net.snap;
+    if (!s || !s.mb || Net.endedAt) return; // only players of this build can receive it
+    const wait = Net.meddleReadyAt - Date.now();
+    if (wait > 0) {
+        meddleMsg = { text: "あと" + Math.ceil(wait / 1000) + "秒", until: Date.now() + 1200 };
+        return;
+    }
+    const k = MEDDLE_BUTTONS[i].k;
+    Net.meddle(k, k === "taunt" ? (Math.random() * VIEWER_TAUNTS.length) | 0 : 0);
+    meddleMsg = { text: MEDDLE_BUTTONS[i].label + "を送った！", until: Date.now() + 1500 };
+}
+
+function saySpeech(text, frames) {
+    speech = { text, t: frames };
+}
+
+// called every battle frame from updatePlay()
+function betaTick() {
+    if (grazePower > 0) grazePower--;
+    if (speech && --speech.t <= 0) speech = null;
+    if (darkTimer > 0) darkTimer--;
+    if (aiPlay) return; // the AI's moves do not teach the boss
+    habitClock++;
+    for (let i = 0; i < habitHeat.length; i++) habitHeat[i] *= HABIT_DECAY; // older stays fade away
+    habitHeat[habitCell(player.x, player.y)] += 1;
+    if (habitClock % 600 === 0) habitSave();
+    if (!practice && habitClock >= habitNext && fightForm() >= HABIT_FROM_FORM) habitHunt();
+}
+
+/* ---- drawing for the three features ---- */
+// speech bubble centred on x (used for the boss on your screen and on the spectators' screen)
+function drawBubble(text, x, y) {
+    const w = Math.min(W - 16, text.length * 14 + 28);
+    ctx.fillStyle = "rgba(0,0,0,.72)";
+    ctx.fillRect(x - w / 2, y - 20, w, 30);
+    ctx.strokeStyle = "rgba(255,255,255,.8)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - w / 2, y - 20, w, 30);
+    drawText(text, x, y, 14, "#fff");
+}
+// darkness: everything is covered except a circle around you
+function drawDark() {
+    if (darkTimer <= 0) return;
+    const a = 0.92 * Math.min(1, darkTimer / 15, (MEDDLE_DARK_FRAMES - darkTimer + 1) / 8);
+    const g = ctx.createRadialGradient(player.x, player.y, 40, player.x, player.y, 110);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0," + a + ")");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+}
+function drawBetaHud() {
+    // graze gauge above the hearts (while powered up it shows the time left instead)
+    const gx = 10;
+    const gy = H - 38;
+    const gw = 110;
+    const on = grazePower > 0;
+    ctx.fillStyle = "#222";
+    ctx.fillRect(gx, gy, gw, 6);
+    ctx.fillStyle = on ? "#fd3" : "#6cf";
+    ctx.fillRect(gx, gy, gw * (on ? grazePower / GRAZE_POWER_FRAMES : grazeGauge / GRAZE_MAX), 6);
+    drawText(on ? "POWER UP " + Math.ceil(grazePower / 60) + "秒" : "かすり", gx, gy - 4, 11, on ? "#fd3" : "#8ac", "left");
+    if (speech) drawBubble(speech.text, Math.max(60, Math.min(W - 60, boss.x)), boss.y + 56);
+}
+function drawMeddleButtons() {
+    const s = Net.snap;
+    if (!s || !s.mb || Net.endedAt) return;
+    const wait = Math.max(0, Net.meddleReadyAt - Date.now());
+    MEDDLE_BUTTONS.forEach((b, i) => {
+        const r = meddleBtn(i);
+        ctx.fillStyle = wait > 0 ? "#223" : "#2a3a66";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = wait > 0 ? "#445" : "#6af";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+        drawText(b.label + (wait > 0 ? "" : " (" + (i + 1) + ")"), r.x + r.w / 2, r.y + 22, 14, wait > 0 ? "#667" : "#cde");
+    });
+    drawText(wait > 0 ? "クールダウン あと" + Math.ceil(wait / 1000) + "秒" : "ボタンで邪魔を入れる", CX, H - 104, 11, "#889");
+    if (meddleMsg && Date.now() < meddleMsg.until) drawText(meddleMsg.text, CX, H - 128, 16, "#fc3");
+}
+
 function updatePlay() {
     runFrames++;
     formFrames++;
@@ -1822,6 +2060,7 @@ function updatePlay() {
     updateBeams();
     updateHazards();
     updateOrbs();
+    betaTick(); // /beta: graze power-up, boss habit, viewer effects
 
     checkBossDefeated();
 }
@@ -1977,6 +2216,9 @@ function buildSnap() {
                 beamPath(b).flat().map(Math.round),
             ]),
         sh: pts,
+        q: speech ? speech.text : "", // the boss's speech bubble
+        dk: darkTimer > 0 ? 1 : 0, // darkness from a viewer
+        mb: 1, // this build accepts viewer interventions (the watch screen shows the buttons)
         // on the selection screen the "orbs" are the choices (same positions as drawSelect)
         o:
             state === S.SELECT
@@ -2196,8 +2438,9 @@ function drawField() {
     ctx.fillStyle = "#9ef";
     shots.forEach((s) => ctx.fillRect(s.x - 1, s.y - 6, 3, 10));
     if (player.inv % 6 < 3)
-        drawPlayer(dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
+        drawPlayer(grazePower > 0 ? "#fd3" : dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
     drawFx();
+    drawDark(); // /beta: a viewer turned the lights off
 
     // HUD
     ctx.fillStyle = "#333";
@@ -2255,6 +2498,7 @@ function drawField() {
             "#f93",
             "right",
         );
+    drawBetaHud(); // /beta: graze gauge, boss speech
 }
 
 // top 10 at the top of the title screen: "rank. name", the score, the time each form was defeated and the HP left
@@ -2516,6 +2760,11 @@ function drawWatch() {
             drawCircle(s.p[0], s.p[1], 9, col, false);
             drawCircle(s.p[0], s.p[1], PLAYER_HIT_R, "#fff");
         }
+        if (s.dk) {
+            ctx.fillStyle = "rgba(0,0,0,.6)"; // the player is in the dark right now
+            ctx.fillRect(0, 0, s.w, H);
+        }
+        if (s.q) drawBubble(s.q, Math.max(60, Math.min(s.w - 60, s.b[0])), s.b[1] + 56);
         ctx.restore();
         // HUD (boss HP, form, hearts)
         ctx.fillStyle = "#333";
@@ -2554,6 +2803,7 @@ function drawWatch() {
         12,
         "#6af",
     );
+    drawMeddleButtons();
     ctx.fillStyle = "#334";
     ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
     drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");

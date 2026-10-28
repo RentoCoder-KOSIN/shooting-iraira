@@ -498,6 +498,62 @@ const GAMEOVER_TAUNTS = [
     ],
 ];
 
+/* ----------------------------------------------------------------------------
+ *  /beta 追加機能の設定値: かすりゲージ / ボスの癖 / 視聴者介入
+ *  （しくみは script.js の「/beta 追加機能」にある）
+ * -------------------------------------------------------------------------- */
+// ---- かすりゲージ: 弾のぎりぎりを通るとたまる。満タンで「近くの弾を消す + 攻撃力アップ」 ----
+const GRAZE_EXTRA_R = 16; // 当たり判定のすぐ外側（この距離まで）を通ると「かすり」
+const GRAZE_BULLET_PT = 1; // 弾1発ぶんのポイント（同じ弾は1回だけ）
+const GRAZE_BEAM_PT = 0.12; // ビームのすぐ横にいる間、1フレームごとのポイント
+const GRAZE_MAX = 30; // 満タンになるポイント
+const GRAZE_BLAST_R = 160; // 満タンで弾を消す半径(px)。オレンジの壁は消さない
+const GRAZE_POWER_FRAMES = 300; // 攻撃力アップの長さ（60 = 1秒）
+const GRAZE_POWER_MUL = 2; // 攻撃力アップ中の、自機ショットのダメージ倍率
+
+// ---- ボスの癖: プレイヤーがよくいる場所を覚えて、そこを狙う ----
+const HABIT_COLS = 3; // 画面を 3 x 3 のマスに分けて、どこにいた時間が長いかを数える
+const HABIT_ROWS = 3;
+const HABIT_NAMES = [
+    ["左上", "上", "右上"],
+    ["左", "真ん中", "右"],
+    ["左下", "下", "右下"],
+];
+const HABIT_DECAY = 0.9997; // 1フレームごとに記録を薄める（今の動きほど重く見る）
+const HABIT_MIN_TOTAL = 1200; // これ以上たまるまでは「覚えた」ことにしない（約20秒ぶん）
+const HABIT_MIN_SHARE = 0.35; // 1つのマスにいた割合がこれ以上なら「癖」とみなす
+const HABIT_FROM_FORM = 1; // この形態から狙い始める（0 = 第1形態）
+const HABIT_FIRST = 600; // 戦闘開始から最初の狙い撃ちまでの最短フレーム
+const HABIT_INTERVAL = 1500; // 狙い撃ちの間隔（フレーム）
+const HABIT_WARN = 100; // 爆発マークが出てから爆発するまで（フレーム）
+const HABIT_SPEECH_FRAMES = 150; // 吹き出しを出しておく長さ
+const HABIT_LINES = [
+    "また{n}か",
+    "{n}にいること多いよね？ ｗ",
+    "知ってる？ 君、{n}が好きなんだよ",
+    "{n}に逃げるの、もうバレてるよ",
+    "はい{n}。覚えました",
+];
+
+// ---- 視聴者介入: 観戦している人がボタンで邪魔を入れる（クールダウンはサーバー側でも見張る）----
+const MEDDLE_BUTTONS = [
+    { k: "fake", label: "偽の玉" },
+    { k: "dark", label: "暗転" },
+    { k: "taunt", label: "煽る" },
+];
+const MEDDLE_FAKE_ORBS = 3; // 偽の玉の数
+const MEDDLE_DARK_FRAMES = 90; // 暗転の長さ。自機のまわりだけは見える
+const MEDDLE_SPEECH_FRAMES = 200; // 視聴者の煽りを出しておく長さ
+const MEDDLE_PLAYER_GAP = 120; // プレイヤー側: 介入が続けて入らない最短間隔（フレーム）
+const VIEWER_TAUNTS = [
+    "視聴者「そこで被弾するの？ ｗ」",
+    "視聴者「ボスもう笑ってるよ」",
+    "視聴者「次は避けられるって信じてる（信じてない）」",
+    "視聴者「画面見えてる？」",
+    "視聴者「がんばれ〜（棒）」",
+    "視聴者「それ、見えてたよね？」",
+];
+
 /* ============================================================================
  *  3. ORBS (色玉)
  *
@@ -732,7 +788,7 @@ const BULLET_TYPES = {
         r: 5,
         color: "#f9e66b",
         path: "bounceEdge",
-        life: 300,
+        life: 450, // was 300: longer life = more bounces = the whole field gets covered evenly
         paces: [],
         randomTempo: false,
     },
@@ -758,7 +814,8 @@ const BULLET_TYPES = {
         r: 5,
         color: "#ff4169",
         path: "boomerang",
-        turnAt: 130, // frames before it turns back (was 66: it came back before it reached the player)
+        turnAt: 210, // frames before it turns back (was 66, then 130): now it flies out far (~500 px) first
+        turnEdge: true, // ... but if it reaches the edge of the screen first, it turns there (it never leaves for good)
         paces: [],
         randomTempo: false,
     },
@@ -916,7 +973,11 @@ const PATHS = {
 
     // boomerang: reverses the direction once, at age = turnAt
     boomerang: (b) => {
-        if (b.age === b.turnAt) {
+        if (b.turned) return;
+        // turnEdge: also turn when it gets near the edge of the screen (otherwise it would leave before turning)
+        const atEdge = b.turnEdge && (b.x < 8 || b.x > W - 8 || b.y < 8 || b.y > H - 8);
+        if (b.age === b.turnAt || atEdge) {
+            b.turned = true;
             b.vx = -b.vx;
             b.vy = -b.vy;
         }
@@ -1917,6 +1978,8 @@ const vEmitter = () => ({
     x: CX + Math.sin(frame * 0.0183) * Math.min(145, W * 0.3),
     y: 190 + Math.cos(frame * 0.0133) * 80,
 });
+const VARIETY_GOLDEN = 2.399963; // the golden angle (rad)
+let vBounceN = 0; // volleys of 跳弾三角網 so far (not reset between loops)
 const vSecs = () => frame / 60; // seconds since the game loop started (the waves of the original used elapsed seconds)
 const vBlast = (h) => vRing("vSmall", h.x, h.y, 10, 135 / 60, Math.random() * 2 * PI);
 
@@ -1995,11 +2058,16 @@ const VARIETY_ATTACKS = [
     {
         name: "跳弾三角網",
         desc: "壁で反射する弾が三角形の軌道で交差する",
+        // The 3 bullets form a triangle (120 deg apart) and every volley turns it by the golden angle, so the
+        // directions never pile up. What matters more for covering the whole screen is how long a bullet lives
+        // (vBounce.life): with 450 frames each bullet bounces long enough to visit the bottom as well as the top.
+        // `vBounceN` keeps counting across loops of the pattern, so the directions never start over.
         fire() {
             const e = vEmitter();
+            const base = vBounceN++ * VARIETY_GOLDEN;
             for (let j = 0; j < 3; j++) {
-                const a = vSecs() * 1.7 + j * 2.094;
-                vShoot("vBounce", e.x + Math.cos(a) * 40, e.y + Math.sin(a) * 40, a + 1.1, 155 / 60);
+                const a = base + (j * 2 * PI) / 3;
+                vShoot("vBounce", e.x + Math.cos(a) * 40, e.y + Math.sin(a) * 40, a, 155 / 60);
             }
         },
     },
@@ -2022,8 +2090,13 @@ const VARIETY_ATTACKS = [
             const step = Math.max(82, W / 7); // wide screens: fewer beams (the beam cap is 18)
             for (let x = 35; x < W; x += step)
                 if (Math.abs(x - safeX) > 29) vVertical(x, 15, 33, 17);
-            for (let y = 35; y < H; y += 76)
+            // rows from the top down to the very bottom (the old rows stopped at y=567, so standing at the bottom
+            // was always safe from them): the rows are spaced evenly and the last one sits at H - 30
+            const rows = Math.max(1, Math.round((H - 65) / 76));
+            for (let k = 0; k <= rows; k++) {
+                const y = 35 + (k * (H - 65)) / rows;
                 if (Math.abs(y - safeY) > 26) vHorizontal(y, 15, 33, 17);
+            }
         },
     },
     {
@@ -2037,7 +2110,9 @@ const VARIETY_ATTACKS = [
                 stopY: 180 + ((n * 53) % 110),
                 diveV: (310 / 60) * speedMul,
             });
-            vAimed("v", W - sx, 40, 120 / 60);
+            // the small ball: about half of them chase you (random), the rest fly straight at you
+            if (Math.random() < 0.5) vAimed("vHome", W - sx, 40, 120 / 60, { r: 5 });
+            else vAimed("v", W - sx, 40, 120 / 60);
         },
     },
     {
