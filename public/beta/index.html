@@ -6,6 +6,77 @@
             name="viewport"
             content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
         />
+        <style>
+            /* beta: admin panel list for deleting one ranking record (kept here so that /play's style.css stays as it is) */
+            .admin-box {
+                max-height: 92vh;
+                overflow-y: auto;
+            }
+            #admin-del {
+                margin-top: 14px;
+                padding-top: 12px;
+                border-top: 1px solid #334;
+            }
+            #admin-del .del-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+            }
+            #admin-del select {
+                padding: 4px 6px;
+                font-size: 14px;
+                color: #fff;
+                background: #0b0b14;
+                border: 1px solid #556;
+                border-radius: 4px;
+            }
+            #admin-del-list {
+                margin: 8px 0 0;
+                padding: 0;
+                list-style: none;
+                font-size: 13px;
+            }
+            #admin-del-list li {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 0;
+                border-bottom: 1px solid #223;
+            }
+            #admin-del-list .rk {
+                width: 1.6em;
+                color: #889;
+                text-align: right;
+            }
+            #admin-del-list .nm {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            #admin-del-list .sc {
+                color: #fc3;
+            }
+            .admin-box #admin-del-list button {
+                margin: 0;
+                padding: 3px 8px;
+                font-size: 12px;
+                color: #fff;
+                background: #c33;
+            }
+            #admin-del-list .empty {
+                color: #889;
+                border: 0;
+            }
+            #admin-del-msg {
+                min-height: 1.2em;
+                margin: 8px 0 0;
+                font-size: 13px;
+                color: #f77;
+            }
+        </style>
         <title>世界一むずかしいゲームを作ろうとしたら理不尽なゲームができた</title>
         <link rel="stylesheet" href="/beta/style.css" />
         <script src="/beta/scoring.js" defer></script>
@@ -55,6 +126,18 @@
                         <span>体力 <b id="admin-hp-val">10</b></span>
                         <input type="range" id="admin-hp" min="1" max="50" step="1" value="10" />
                     </label>
+                    <!-- delete ONE record of the ranking (the list is loaded from the server) -->
+                    <div id="admin-del">
+                        <div class="del-head">
+                            <b>スコアを1件ずつ削除</b>
+                            <select id="admin-del-mode">
+                                <option value="hard">理不尽</option>
+                                <option value="normal">通常</option>
+                            </select>
+                        </div>
+                        <ol id="admin-del-list"></ol>
+                        <p id="admin-del-msg"></p>
+                    </div>
                     <button id="admin-reset" class="danger">
                         全スコアボードをリセット
                     </button>

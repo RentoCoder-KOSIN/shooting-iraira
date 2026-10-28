@@ -413,6 +413,9 @@ function showAdminView() {
     disarmReset();
     adminResetMsg.textContent = "";
     adminRlMsg.textContent = "";
+    adminDelMsg.textContent = "";
+    disarmDelete();
+    if (adminAuthed) loadDeleteList(); // the list of records that can be deleted one by one
     disarmRlReset();
     (adminAuthed ? adminInv : adminPass).focus();
 }
@@ -500,12 +503,106 @@ adminReset.addEventListener("click", async () => {
             normal: { rows: [], status: "ok", at: Date.now() },
         };
         adminResetMsg.textContent = "全スコアを削除しました";
+        delRows = []; // the list for deleting one record is empty now too
+        renderDeleteList();
     } catch (err) {
         adminResetMsg.textContent =
             "リセットできませんでした（" + (err.message || "error") + "）";
     }
     adminReset.disabled = false;
 });
+/* delete ONE ranking record: pick the mode, then press 削除 twice (second press within 4 s) */
+const adminDelMode = document.getElementById("admin-del-mode");
+const adminDelList = document.getElementById("admin-del-list");
+const adminDelMsg = document.getElementById("admin-del-msg");
+let delRows = []; // the rows shown in the list (each has the server's id)
+let delArmedId = null; // the record whose 削除 button was pressed once
+let delTimer = 0;
+function disarmDelete() {
+    delArmedId = null;
+    clearTimeout(delTimer);
+}
+function renderDeleteList() {
+    adminDelList.textContent = "";
+    if (!delRows.length) {
+        const li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = "記録がありません";
+        adminDelList.appendChild(li);
+        return;
+    }
+    delRows.forEach((r, i) => {
+        const li = document.createElement("li");
+        const rk = document.createElement("span");
+        rk.className = "rk";
+        rk.textContent = i + 1;
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = r.name; // textContent: a name can never be read as HTML
+        const sc = document.createElement("span");
+        sc.className = "sc";
+        sc.textContent = fmtScore(r.score);
+        const btn = document.createElement("button");
+        btn.textContent = delArmedId === r.id ? "本当に？" : "削除";
+        btn.addEventListener("click", () => onDeleteClick(r));
+        li.append(rk, nm, sc, btn);
+        adminDelList.appendChild(li);
+    });
+}
+async function loadDeleteList() {
+    if (!adminAuthed || !SCORE_ENABLED) return;
+    disarmDelete();
+    adminDelMsg.textContent = "読み込み中…";
+    try {
+        const res = await fetch(
+            SCORE_API + "/api/scores?mode=" + adminDelMode.value,
+        );
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        delRows = (await res.json()).scores;
+        renderDeleteList();
+        adminDelMsg.textContent = "";
+    } catch (err) {
+        adminDelMsg.textContent =
+            "一覧を読み込めませんでした（" + (err.message || "error") + "）";
+    }
+}
+async function onDeleteClick(row) {
+    if (delArmedId !== row.id) {
+        // first press: ask again; it is disarmed after 4 s
+        delArmedId = row.id;
+        clearTimeout(delTimer);
+        delTimer = setTimeout(() => {
+            disarmDelete();
+            renderDeleteList();
+        }, 4000);
+        renderDeleteList();
+        return;
+    }
+    disarmDelete();
+    const mode = adminDelMode.value;
+    adminDelMsg.textContent = "削除中…";
+    try {
+        const res = await fetch(SCORE_API + "/api/scores/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: adminPassUsed, mode, id: row.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        delRows = data.scores;
+        boards[mode] = { rows: data.scores, status: "ok", at: Date.now() }; // the title screen ranking too
+        renderDeleteList();
+        adminDelMsg.textContent = data.deleted
+            ? "削除しました"
+            : "すでに削除されていました";
+    } catch (err) {
+        renderDeleteList();
+        adminDelMsg.textContent =
+            "削除できませんでした（" + (err.message || "error") + "）";
+    }
+}
+adminDelMode.addEventListener("change", loadDeleteList);
+
 /* reset what the RLモード boss AI has learned (this browser + the shared one on the server): press twice (second press within 4 s) */
 const adminRlReset = document.getElementById("admin-rl-reset");
 const adminRlMsg = document.getElementById("admin-rl-msg");

@@ -19,6 +19,8 @@
  *    POST /api/scores/reset -> { ok: true, scores: [] }   body: { password }
  *      admin only: deletes ALL records. The password is checked here on the server
  *      (env ADMIN_PASSWORD; falls back to the same default as config.js).
+ *    POST /api/scores/delete -> { ok: true, deleted, scores: [top 10 of that mode] }   body: { password, mode, id }
+ *      admin only: deletes ONE record (the `id` of a row of GET /api/scores). Same password check as reset.
  *
  *  Storage:
  *    DATABASE_URL set   -> PostgreSQL (use this on Render; the data survives restarts)
@@ -199,6 +201,7 @@ async function createPgStore(url) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`);
     const toRow = (r) => ({
+        id: r.id,
         mode: r.mode,
         name: r.name,
         form: r.form,
@@ -213,7 +216,7 @@ async function createPgStore(url) {
         kind: "postgres",
         async top(mode, n) {
             const r = await pool.query(
-                "SELECT mode, name, form, cleared, form_ms, total_ms, splits, hp, score FROM scores WHERE mode = $1 ORDER BY score DESC, id ASC LIMIT $2",
+                "SELECT id, mode, name, form, cleared, form_ms, total_ms, splits, hp, score FROM scores WHERE mode = $1 ORDER BY score DESC, id ASC LIMIT $2",
                 [mode, n],
             );
             return r.rows.map(toRow);
@@ -243,6 +246,14 @@ async function createPgStore(url) {
         async clear() {
             await pool.query("TRUNCATE TABLE scores RESTART IDENTITY");
         },
+        // delete one record of that mode; true when a record was deleted
+        async remove(mode, id) {
+            const r = await pool.query(
+                "DELETE FROM scores WHERE mode = $1 AND id = $2",
+                [mode, id],
+            );
+            return r.rowCount > 0;
+        },
         async getKV(k) {
             const r = await pool.query("SELECT v FROM kv WHERE k = $1", [k]);
             return r.rows[0] ? r.rows[0].v : null;
@@ -262,6 +273,9 @@ function createFileStore(file, kvFile) {
     try {
         rows = JSON.parse(fs.readFileSync(file, "utf8"));
     } catch (_) {}
+    // every record needs an id so that the admin can delete one (old records get one here)
+    let nextId = rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0) + 1;
+    for (const r of rows) if (!Number.isInteger(r.id)) r.id = nextId++;
     // records of one mode, best score first (the sort is stable: earlier records stay above on ties).
     // Old records have no mode and are ignored.
     const ofMode = (mode) =>
@@ -275,13 +289,20 @@ function createFileStore(file, kvFile) {
             const rank =
                 rows.filter((r) => r.mode === s.mode && r.score >= s.score)
                     .length + 1;
-            rows.push(s);
+            rows.push({ ...s, id: nextId++ });
             fs.writeFileSync(file, JSON.stringify(rows));
             return rank;
         },
         async clear() {
             rows = [];
             fs.writeFileSync(file, "[]");
+        },
+        async remove(mode, id) {
+            const before = rows.length;
+            rows = rows.filter((r) => !(r.mode === mode && r.id === id));
+            if (rows.length === before) return false;
+            fs.writeFileSync(file, JSON.stringify(rows));
+            return true;
         },
         async getKV(k) {
             try {
@@ -501,6 +522,36 @@ function createApp(store, rl) {
                 );
                 res.set("Cache-Control", "no-store");
                 res.json({ ok: true, scores: [] });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ error: "server error" });
+            }
+        },
+    );
+
+    // admin: delete ONE record (the password is checked here, like for reset)
+    app.post(
+        "/api/scores/delete",
+        express.json({ limit: "1kb" }),
+        async (req, res) => {
+            if (rateLimited(req.ip, RESET_LIMIT, "reset"))
+                return res
+                    .status(429)
+                    .json({ error: "試行が多すぎます。少し待ってください" });
+            const { password, mode, id } = req.body || {};
+            if (typeof password !== "string" || !safeEqual(password, ADMIN_PASSWORD))
+                return res.status(403).json({ error: "パスワードが違います" });
+            if (!MODE_IDS.includes(mode) || !Number.isInteger(id) || id < 1)
+                return res.status(400).json({ error: "bad request" });
+            try {
+                const deleted = await store.remove(mode, id);
+                console.warn(
+                    "[scores] record " + mode + "#" + id +
+                        (deleted ? " was deleted" : " was not found") +
+                        " by admin (" + req.ip + ")",
+                );
+                res.set("Cache-Control", "no-store");
+                res.json({ ok: true, deleted, scores: await store.top(mode, TOP_N) });
             } catch (err) {
                 console.error(err);
                 res.status(500).json({ error: "server error" });
