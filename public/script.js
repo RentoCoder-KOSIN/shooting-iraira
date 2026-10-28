@@ -38,6 +38,7 @@ const BTN_GAG_DONE = { x: 150, y: 420, w: 180, h: 60 }; // x follows the screen 
 // the two buttons of a confirmation: side 0 = left, 1 = right (x follows the screen center)
 const gagBtn = (side) => ({ x: CX - 150 + side * 160, y: 420, w: 140, h: 60 });
 const MODE_BTN = { x: 90, y: 215, w: 300, h: 74, gap: 12 }; // mode select buttons (x follows the screen center)
+const modeBack = () => ({ x: 20, y: H - 46, w: 110, h: 30 }); // on the mode select screen (bottom left)
 // spectating buttons (x follows the screen center)
 const watchBtn = () => ({ x: CX - 70, y: 588, w: 140, h: 30 }); // on the title screen
 const watchRow = (i) => ({ x: CX - 150, y: 120 + i * 52, w: 300, h: 44 }); // one playing person
@@ -95,6 +96,11 @@ let usedAdmin; // invincible mode was on at some point in this run -> not record
 let lastRun; // the finished run: { mode, form, cleared, formMs, totalMs, splits, hp, score, parts, rank }
 let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
 let scoreOpen = false; // the name entry panel is open
+// --- GAME OVER taunt: what the boss says depends on how the player played (see chooseGameOverTaunt) ---
+let runStats = { hits: 0, hitFrames: [], movingFrames: 0 }; // this run: hits taken (run frame of each), frames the player moved
+let loseStreak = 0; // losses in a row in this browser session (a real CLEAR resets it; practice / AI runs do not count)
+let prevSurviveFrames = null; // survival (frames) of the previous loss in the streak, null = none yet
+let recentTaunts = []; // the last few lines shown, so the same line does not come twice in a row
 
 // The form that is actually being fought: form 1 during a detour, otherwise the progress form.
 // It decides the attack list, the form name on screen and the taunt.
@@ -217,6 +223,7 @@ function resetGame() {
     invincible = false; // admin mode is NOT carried over to the next run
     adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
+    runStats = { hits: 0, hitFrames: [], movingFrames: 0 };
     lastRun = null;
     runToken++;
     closeScore();
@@ -561,6 +568,10 @@ async function fetchScores(force = false, mode = boardMode) {
 
 // Called when a real game over / real CLEAR happens
 function finishRun(cleared) {
+    if (cleared && !practice && !aiPlay) {
+        loseStreak = 0; // the boss's "また君だ" lines start over after a win
+        prevSurviveFrames = null;
+    }
     lastRun = {
         mode: gameMode.id,
         form: phase + 1,
@@ -633,6 +644,10 @@ async function submitScore() {
     if (!scoreOpen || scoreOk.disabled || !lastRun) return;
     const run = lastRun;
     const name = scoreName.value.trim().slice(0, SCORE_NAME_MAX);
+    if (containsBadWordClient(name)) {
+        scoreMsg.textContent = "その名前は使用できません。別の名前にしてください。";
+        return;
+    }
     scoreOk.disabled = true;
     scoreMsg.textContent = "送信中…";
     try {
@@ -661,8 +676,10 @@ async function submitScore() {
         boardMode = run.mode; // the title screen shows the ranking you just entered
         closeScore();
     } catch (err) {
-        scoreMsg.textContent =
-            "送信できませんでした（" + (err.message || "error") + "）";
+        const msg = err.message || "error";
+        scoreMsg.textContent = msg === "inappropriate name"
+            ? "その名前は使用できません。別の名前にしてください。"
+            : "送信できませんでした（" + msg + "）";
         scoreOk.disabled = false;
     }
 }
@@ -670,6 +687,51 @@ scoreOk.addEventListener("click", submitScore);
 scoreSkip.addEventListener("click", closeScore);
 scoreName.addEventListener("keydown", (e) => {
     if (e.key === "Enter") submitScore();
+});
+
+/* ---------- クライアント側 不適切ワードフィルター ---------- */
+// サーバー側と同じロジックで送信前にチェック（即時フィードバック用）
+const CLIENT_BAD_WORDS = [
+    // 日本語
+    "うんこ","うんち","ちんこ","ちんぽ","まんこ","おっぱい","せっくす","えっち",
+    "ちくび","きんたま","おちんちん","むけちん","しこ","おなに","ふぇら",
+    "くそ","ばか","あほ","しね","死ね","殺す","ころす","きもい",
+    "クソ","バカ","アホ","キモい","ウンコ","ウンチ","チンコ","チンポ","マンコ",
+    "オッパイ","セックス","エッチ","チクビ","キンタマ","オチンチン","オナニ","フェラ",
+    "ちんちん","まんちん","おまんこ","ちんぽこ",
+    // 英語
+    "fuck","shit","ass","bitch","bastard","damn","cunt","dick","cock",
+    "pussy","nigger","nigga","faggot","retard","whore","slut",
+    "penis","vagina","anus","boob","tit","porn","sex","nude",
+    "kill","die","rape","racist",
+];
+function normalizeNameClient(str) {
+    return str
+        .toLowerCase()
+        .replace(/[\s\-_・]/g, "")
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) =>
+            String.fromCharCode(c.charCodeAt(0) - 0xfee0),
+        )
+        .replace(/[ぁ-ん]/g, (c) =>
+            String.fromCharCode(c.charCodeAt(0) + 0x60),
+        );
+}
+function containsBadWordClient(name) {
+    const n = normalizeNameClient(name);
+    return CLIENT_BAD_WORDS.some((w) => n.includes(normalizeNameClient(w)));
+}
+// 入力中にリアルタイムでメッセージを表示
+scoreName.addEventListener("input", () => {
+    const v = scoreName.value.trim();
+    if (v && containsBadWordClient(v)) {
+        scoreMsg.textContent = "その名前は使用できません";
+        scoreMsg.style.color = "#f66";
+    } else {
+        if (scoreMsg.textContent === "その名前は使用できません") {
+            scoreMsg.textContent = "";
+            scoreMsg.style.color = "";
+        }
+    }
 });
 
 /* fullscreen */
@@ -969,6 +1031,10 @@ canvas.addEventListener("click", (e) => {
         MODE_MENU.forEach((_, i) => {
             if (inButton(p, modeBtn(i))) chooseMode(i);
         });
+        if (inButton(p, modeBack())) {
+            if (aiPlay) aiSetPlay(false);
+            state = S.TITLE;
+        }
     } else if (state === S.PRACT) {
         MODES.forEach((_, i) => {
             if (inButton(p, practTab(i))) {
@@ -1252,11 +1318,119 @@ function takeOrb(id) {
     ORBS[id].apply();
 }
 
+/* ---- GAME OVER taunt ----
+ *  The lines and their tags are in config.js (GAMEOVER_TAUNTS). Here we look at how the run went,
+ *  turn that into a set of active tags, and pick one line by weight. */
+// how much an active tag raises the weight of a line (a line starts at 1)
+const TAUNT_TAG_WEIGHT = {
+    fake: 15, // the purple orb's fake game over was seen in this run
+    instant: 6,
+    f1: 6,
+    deep: 4,
+    last: 6,
+    long: 4,
+    bossHigh: 6,
+    close: 8,
+    still: 8,
+    busy: 5,
+    burst: 6,
+    inverted: 8,
+    rl: 3,
+    again: 2,
+    retry: 4,
+    n2: 10, // "2回目の挑戦！" etc.: these lines are also favoured by the milestone rule in chooseGameOverTaunt()
+    n3: 10,
+    n5: 10,
+    n10: 10,
+    improved: 12,
+    worse: 8,
+};
+
+// the situations that are true for the run that just ended
+function tauntSituation() {
+    const tags = new Set();
+    const real = !practice && !aiPlay; // practice / AI runs do not count as attempts
+    const secs = (runFrames * STEP_MS) / 1000;
+    const last = formCount() - 1;
+    const hits = runStats.hits;
+    const hf = runStats.hitFrames;
+    const bossRatio = boss.max > 0 ? Math.max(0, boss.hp) / boss.max : 1;
+    const movingRatio = runFrames > 0 ? runStats.movingFrames / runFrames : 0;
+
+    if (phase === 0 && !detour) tags.add("f1");
+    if (phase >= 2) tags.add("deep");
+    if (phase === last) tags.add("last");
+    if (secs < 20) tags.add("instant");
+    if (secs >= 120) tags.add("long");
+    if (fakeCount > 0) tags.add("fake");
+    if (bossRatio > 0.85) tags.add("bossHigh");
+    if (bossRatio < 0.25) tags.add("close");
+    if (secs >= 6 && movingRatio < 0.35) tags.add("still");
+    if (hits >= 3 && movingRatio > 0.8) tags.add("busy");
+    if (hits >= 3 && hf[hits - 1] - hf[hits - 3] <= 240) tags.add("burst"); // 3 hits within 4 seconds
+    if (invertTimer > 0) tags.add("inverted");
+    if (gameMode.rl) tags.add("rl");
+
+    if (real) {
+        loseStreak++;
+        const n = loseStreak;
+        if (n >= 2) tags.add("again");
+        if (n >= 4) tags.add("retry");
+        if ([2, 3, 5, 10].includes(n)) tags.add("n" + n);
+        if (prevSurviveFrames !== null) {
+            if (runFrames > prevSurviveFrames) tags.add("improved");
+            else if (runFrames < prevSurviveFrames * 0.6) tags.add("worse");
+        }
+        prevSurviveFrames = runFrames;
+    }
+    return tags;
+}
+
+function chooseGameOverTaunt() {
+    const tags = tauntSituation();
+    const weighted = [];
+    for (const [text, tagStr] of GAMEOVER_TAUNTS) {
+        let weight = 1;
+        let allowed = true;
+        for (const raw of tagStr.split(/\s+/).filter(Boolean)) {
+            const needed = raw[0] === "!"; // "!tag" = the line only fits while that situation is true
+            const tag = needed ? raw.slice(1) : raw;
+            if (tags.has(tag)) weight += TAUNT_TAG_WEIGHT[tag] || 0;
+            else if (needed) allowed = false;
+        }
+        if (allowed) weighted.push({ text, weight, tagStr });
+    }
+    // not the same line again right away (unless there is nothing else)
+    const fresh = weighted.filter((w) => !recentTaunts.includes(w.text));
+    let pool = fresh.length ? fresh : weighted;
+    // the 2nd / 3rd / 5th / 10th loss in a row: most of the time use that attempt's own line
+    const milestone = [...tags].find((t) => /^n\d+$/.test(t));
+    if (milestone && Math.random() < 0.6) {
+        const own = pool.filter((w) => w.tagStr.split(/\s+/).includes("!" + milestone));
+        if (own.length) pool = own;
+    }
+    if (!pool.length) return pick(TAUNTS); // (cannot happen: lines without tags always fit)
+    let r = Math.random() * pool.reduce((sum, w) => sum + w.weight, 0);
+    let chosen = pool[pool.length - 1];
+    for (const w of pool) {
+        r -= w.weight;
+        if (r < 0) {
+            chosen = w;
+            break;
+        }
+    }
+    recentTaunts.push(chosen.text);
+    if (recentTaunts.length > 12) recentTaunts.shift();
+    return chosen.text;
+}
+
 function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
     Sound.se("hurt");
     player.hp -= dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
+    runStats.hits++;
+    runStats.hitFrames.push(runFrames);
     if (gameMode.rl) RL.onHit(); // the boss AI learns from it (and takes a short break if it hits too often)
     burstFx(player.x, player.y, "#f66", 10, 3, 18);
     ringFx(player.x, player.y, "#f88", 24, 16);
@@ -1265,7 +1439,7 @@ function hurtPlayer() {
         burstFx(player.x, player.y, "#fff", 14, 4, 30); // extra burst when it is the last hit
         ringFx(player.x, player.y, "#fff", 44, 28);
         state = S.OVER;
-        tauntText = pick(TAUNTS).replace("◯", FORM_NAMES[fightForm()]);
+        tauntText = chooseGameOverTaunt();
         finishRun(false);
     }
 }
@@ -1446,7 +1620,10 @@ function checkBossDefeated() {
 function updatePlay() {
     runFrames++;
     formFrames++;
+    const prevX = player.x;
+    const prevY = player.y;
     movePlayer();
+    if (player.x !== prevX || player.y !== prevY) runStats.movingFrames++;
     if (player.inv > 0) player.inv--;
     history.push({ x: player.x, y: player.y });
     if (history.length > HISTORY_FRAMES) history.shift();
@@ -1669,6 +1846,45 @@ function drawText(str, x, y, size, color, align = "center") {
     while (ctx.measureText(str).width > 440 && size > 10)
         ctx.font = "bold " + --size + "px sans-serif";
     ctx.fillText(str, x, y);
+}
+
+// Long text on several centered lines (used for the boss's taunt). Breaks at spaces when it can, and never
+// puts a closing mark such as 」 ！ ？ ｗ at the start of a line. Shrinks the font until it fits in maxLines.
+function drawWrapped(str, x, y, size, color, maxW, lineH, maxLines) {
+    const NO_START = "、。，．！？…」』）ｗ笑ー〜～";
+    let lines = [];
+    for (; size >= 12; size--) {
+        ctx.font = "bold " + size + "px sans-serif";
+        lines = [];
+        let line = "";
+        for (const seg of str.match(/[^ 　]+[ 　]*/g) || [str]) {
+            const trimmed = (s) => s.replace(/[ 　]+$/, "");
+            if (ctx.measureText(trimmed(line + seg)).width <= maxW) {
+                line += seg;
+                continue;
+            }
+            if (line) lines.push(trimmed(line));
+            line = "";
+            // a single piece that is too wide: break it by characters
+            for (const ch of seg) {
+                if (
+                    line &&
+                    ctx.measureText(trimmed(line + ch)).width > maxW &&
+                    !NO_START.includes(ch)
+                ) {
+                    lines.push(trimmed(line));
+                    line = "";
+                }
+                line += ch;
+            }
+        }
+        if (line) lines.push(line.replace(/[ 　]+$/, ""));
+        if (lines.length <= maxLines) break;
+    }
+    ctx.textAlign = "center";
+    ctx.fillStyle = color;
+    lines.forEach((l, i) => ctx.fillText(l, x, y + i * lineH));
+    return lines.length;
 }
 
 function drawCircle(x, y, r, color, filled = true) {
@@ -2250,6 +2466,10 @@ function drawOverlay() {
                     12,
                     "#fc3",
                 );
+            const mb = modeBack();
+            ctx.fillStyle = "#334";
+            ctx.fillRect(mb.x, mb.y, mb.w, mb.h);
+            drawText("タイトルへ (Esc)", mb.x + mb.w / 2, mb.y + 20, 12, "#ccd");
             break;
         case S.PRACT: {
             fillScreen("#10101c");
@@ -2377,8 +2597,9 @@ function drawOverlay() {
             break;
         case S.OVER:
             fillScreen("rgba(0,0,0,.8)");
-            drawText("GAME OVER", CX, 250, 48, "#e22");
-            drawText("👿「" + tauntText + "」", CX, 330, 22, "#fff");
+            drawText("GAME OVER", CX, 205, 48, "#e22");
+            // the boss's taunt can be long: wrap it (max 3 lines) above the result
+            drawWrapped("👿「" + tauntText + "」", CX, 268, 20, "#fff", Math.min(W - 40, 420), 27, 3);
             drawRunResult(365, 392);
             if (practice) drawPracticeButtons();
             else

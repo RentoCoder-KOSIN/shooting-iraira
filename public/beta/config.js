@@ -50,13 +50,21 @@ const HURT_INVINCIBLE_FRAMES = 60; // invincibility after being hit
 
 // ---- boss ----
 const BOSS_HP = [170, 220, 260, 220]; // HP of each form (通常モード: 4 forms, 第4形態: 340 -> 220 体力を減らして攻撃力UP)
-const BOSS_HP_HARD = [170, 220, 260, 220, 380, 440, 560]; // 理不尽モード: 7 forms (第4形態: 340 -> 220)
+const BOSS_HP_HARD = [170, 220, 260, 340, 380, 440, 560]; // 理不尽モード: 7 forms (第4形態: 340 -> 220)
 // 理不尽モード actually uses this one: forms 1-3 are unchanged, forms 4-7 are a bit shorter than BOSS_HP_HARD
 // (scoring.js parMs = HP x 200 ms). Forms 4-7 were eased once and then raised again about half way back (2026-10-22).
 // BOSS_HP_HARD above stays as it was for the RLモード (its learned data depends on it).
-const BOSS_HP_HARD_EASED = [170, 220, 260, 200, 355, 410, 520]; // form 4: 300 -> 200 (体力を減らして攻撃力UP)
+const BOSS_HP_HARD_EASED = [170, 220, 260, 340, 355, 410, 520]; // form 4: 300 -> 200 (体力を減らして攻撃力UP)
 // Subtitle shown in the HUD for the 理不尽 forms (null = no subtitle)
-const FORM_TITLES_HARD = [null, null, null, null, "覚えた奴ほど死ぬ", "プレイヤー対策", "最終理不尽"];
+const FORM_TITLES_HARD = [
+    null,
+    null,
+    null,
+    null,
+    "覚えた奴ほど死ぬ",
+    "プレイヤー対策",
+    "最終理不尽",
+];
 const FORM_NAMES = "一二三四五六七"; // used in "第◯形態" (the 理不尽 mode has 7 forms)
 const START_SPEED_MUL = 1.1; // every bullet speed is multiplied by this (grows with some orbs)
 const BOSS_START_Y = 90; // boss y position
@@ -289,29 +297,59 @@ const TAUNTS = [
 const GAMEOVER_TAUNTS = [
     // ① 煽り性能MAX
     ["えっ、負けたの！？！？ うそ！？ ……うそじゃないのかｗｗｗ", "fake"],
-    ["よっわｗｗｗ いや待って、今のは君が弱いんじゃなくて……いや、君が弱いわｗ", ""],
+    [
+        "よっわｗｗｗ いや待って、今のは君が弱いんじゃなくて……いや、君が弱いわｗ",
+        "",
+    ],
     ["え、これクリアできない人いるんだ……あっ、ごめん目の前にいたｗｗｗ", "f1"],
     ["君の実力、体験版で終わってない？ｗ", "f1 instant"],
     ["うわぁぁぁ！ 強すぎる！！ ……ボスがねｗｗｗ", "close"],
-    ["負けるの早すぎて、こっちの煽りが間に合わなかったんだけどｗ", "instant worse"],
+    [
+        "負けるの早すぎて、こっちの煽りが間に合わなかったんだけどｗ",
+        "instant worse",
+    ],
     ["今の負け方、逆に才能あるよｗｗｗ", "instant worse"],
     ["え、今ので終わり？ まだ僕、自己紹介しかしてないよ？", "instant"],
     ["君が勝つルート、開発段階で削除された？ｗｗｗ", "retry"],
 
     // ② 正論ぶって精神を削る
-    ["では、敗因を発表してください。制限時間はありません。どうせ考えてもわからないのでｗ", ""],
-    ["今の弾、見えてたよね？ 見えてたのに当たったんだよね？ ……なるほどｗ", "burst"],
+    [
+        "では、敗因を発表してください。制限時間はありません。どうせ考えてもわからないのでｗ",
+        "",
+    ],
+    [
+        "今の弾、見えてたよね？ 見えてたのに当たったんだよね？ ……なるほどｗ",
+        "burst",
+    ],
     ["回避ボタン、飾りとして実装したわけじゃないんだけどなぁｗ", "still"],
-    ["今のミスを一言で説明してください。はい、『自分のせい』ですｗ", "burst inverted"],
-    ["反省点は3つ！ 1つ目、避けなかった。2つ目、当たった。3つ目、負けたｗ", "still"],
+    [
+        "今のミスを一言で説明してください。はい、『自分のせい』ですｗ",
+        "burst inverted",
+    ],
+    [
+        "反省点は3つ！ 1つ目、避けなかった。2つ目、当たった。3つ目、負けたｗ",
+        "still",
+    ],
     ["その動き、敵の攻撃を避けるというより、弾に会いに行ってるよねｗ", "busy"],
-    ["今の攻撃の安全地帯、ちゃんとあったんだけど……君の画面だけ消えてた？ｗ", "burst"],
+    [
+        "今の攻撃の安全地帯、ちゃんとあったんだけど……君の画面だけ消えてた？ｗ",
+        "burst",
+    ],
     ["攻略動画を見る前に、自分のプレイ動画を見たほうがいいかもｗ", "retry"],
-    ["君の操作と敵の攻撃、完全に連携してたね。全部当たりに行ってたｗ", "busy inverted"],
-    ["敗因は何でしょう？ A：弾　B：ボス　C：自分の操作　正解は……全部ではなくCですｗ", "inverted"],
+    [
+        "君の操作と敵の攻撃、完全に連携してたね。全部当たりに行ってたｗ",
+        "busy inverted",
+    ],
+    [
+        "敗因は何でしょう？ A：弾　B：ボス　C：自分の操作　正解は……全部ではなくCですｗ",
+        "inverted",
+    ],
 
     // ③ 配信者・切り抜き公開処刑
-    ["切り抜きよろしく～！ タイトルは『最強を名乗った結果』で！ｗ", "deep last"],
+    [
+        "切り抜きよろしく～！ タイトルは『最強を名乗った結果』で！ｗ",
+        "deep last",
+    ],
     ["今の場面、編集でカットしないでね！ ここが本編だからｗ", "close"],
     ["はい、ここでコメント欄の皆さん！ 敗因予想をどうぞ！ｗ", ""],
     ["サムネ用の文字は『余裕の表情からの即終了』で決まり！", "instant still"],
@@ -319,7 +357,10 @@ const GAMEOVER_TAUNTS = [
     ["配信タイトル変えよ！ 『ラスボス討伐』から『ラスボス見学会』にｗ", "last"],
     ["アーカイブ残してね。未来の君が反省するために必要だからｗ", "long retry"],
     ["今の負け、切り抜き職人さんが一番困るやつ。短すぎてｗ", "instant"],
-    ["視聴者さん、今のはボスが強かったんじゃありません。君が……おっと、言いすぎた？ｗ", ""],
+    [
+        "視聴者さん、今のはボスが強かったんじゃありません。君が……おっと、言いすぎた？ｗ",
+        "",
+    ],
     ["はい、敗北記念スクリーンショット！ 額縁に入れて飾っとこうｗ", "deep"],
 
     // ④ しつこすぎる小馬鹿系
@@ -337,13 +378,28 @@ const GAMEOVER_TAUNTS = [
     // ⑤ ラスボスの上から目線
     ["お疲れ様。ちなみに、今のは第1形態のウォーミングアップです", "!f1"],
     ["え、ここで負けたの？ まだ本気を出すか迷ってたんだけどｗ", "f1 bossHigh"],
-    ["君のために新技を用意したのに……使う前に終わるとは思わなかったｗ", "f1 instant"],
+    [
+        "君のために新技を用意したのに……使う前に終わるとは思わなかったｗ",
+        "f1 instant",
+    ],
     ["第2形態に進めると思った？ ……その自信、どこから来たの？ｗ", "!f1"],
     ["君のHPが減るたびに、僕のやる気が上がる仕様ですｗ", "burst"],
-    ["今の攻撃、難しかった？ ごめんね。次はもっと簡単に……すると思った？ｗ", "burst"],
-    ["まだ僕のHP、ほとんど減ってないんだけど。君のほうはもう空っぽだねｗ", "!bossHigh"],
-    ["ここまで来た努力は認めるよ。勝てるとは一言も言ってないけどｗ", "deep last close"],
-    ["君が僕を倒す未来、シミュレーションしてみたけど……エラーが出たｗ", "deep last rl"],
+    [
+        "今の攻撃、難しかった？ ごめんね。次はもっと簡単に……すると思った？ｗ",
+        "burst",
+    ],
+    [
+        "まだ僕のHP、ほとんど減ってないんだけど。君のほうはもう空っぽだねｗ",
+        "!bossHigh",
+    ],
+    [
+        "ここまで来た努力は認めるよ。勝てるとは一言も言ってないけどｗ",
+        "deep last close",
+    ],
+    [
+        "君が僕を倒す未来、シミュレーションしてみたけど……エラーが出たｗ",
+        "deep last rl",
+    ],
     ["敗北おめでとう。君は今、僕の勝利演出を解放しました！", ""],
 
     // ⑥ 褒めてるフリして落とす
@@ -371,39 +427,75 @@ const GAMEOVER_TAUNTS = [
     ["何回でも来てね！ 僕の勝利数が増えるから！ｗ", "!again"],
 
     // ⑧ 意味不明なテンションで煽る
-    ["うえええええええええええい！！ 勝ったあああああ！！ ……え、君は？ あ、負けたのかｗｗｗ", "fake"],
+    [
+        "うえええええええええええい！！ 勝ったあああああ！！ ……え、君は？ あ、負けたのかｗｗｗ",
+        "fake",
+    ],
     ["勝利！ 勝利！ 大勝利！ 敗北！ 敗北！ 大敗北！ ……君のほうねｗ", ""],
     ["うぉぉぉぉ！ 今の攻撃、最高だった！ 君のリアクションがｗ", "burst"],
-    ["どわああああ！ ……って言いたかったのに、君が先に倒れちゃったｗ", "instant"],
+    [
+        "どわああああ！ ……って言いたかったのに、君が先に倒れちゃったｗ",
+        "instant",
+    ],
     ["はい優勝～～！ 参加者1名！ 敗者1名！ 君です！！ｗ", ""],
-    ["やったあああ！ ……あ、ごめん。君が負けたことを忘れて盛り上がっちゃったｗ", "fake instant"],
+    [
+        "やったあああ！ ……あ、ごめん。君が負けたことを忘れて盛り上がっちゃったｗ",
+        "fake instant",
+    ],
     ["パパパパーン！ 敗北のファンファーレでーす！", ""],
-    ["君の敗北に祝杯を……あっ、お祝いの準備するほど時間かからなかったねｗ", "instant"],
+    [
+        "君の敗北に祝杯を……あっ、お祝いの準備するほど時間かからなかったねｗ",
+        "instant",
+    ],
     ["勝利の舞、いきます！ らんらんる～～！ ……まだリザルト見てる？ｗ", "retry"],
     ["ボス撃破！ ……されてません！ 君が撃破されました～～！！ｗ", "close"],
 
     // ⑨ 冷静すぎて逆に腹立つ
     ["敗北を確認しました。原因は、敗北したことです", ""],
-    ["戦闘終了。君の活躍については……記録する項目がありませんでした", "instant still"],
+    [
+        "戦闘終了。君の活躍については……記録する項目がありませんでした",
+        "instant still",
+    ],
     ["今回の戦闘データを分析中……分析終了。もう一度やってみましょう", "rl"],
-    ["残念なお知らせです。君の作戦は、敵にとって都合がよかったようです", "still"],
+    [
+        "残念なお知らせです。君の作戦は、敵にとって都合がよかったようです",
+        "still",
+    ],
     ["結果は変わりませんでした。君の自信だけが変わりました", "retry"],
     ["君の努力は確認できました。勝利は確認できませんでした", "deep close"],
-    ["生存時間を記録しました。次回の目標は、今回の記録を超えることです", "long improved"],
+    [
+        "生存時間を記録しました。次回の目標は、今回の記録を超えることです",
+        "long improved",
+    ],
     ["敗北理由を検索中……候補が多すぎるため、検索を終了しました", "burst busy"],
-    ["君のプレイは統計上、非常に興味深い結果となりました。悪い意味で", "rl worse"],
+    [
+        "君のプレイは統計上、非常に興味深い結果となりました。悪い意味で",
+        "rl worse",
+    ],
     ["お疲れ様でした。なお、ボスはまだ元気です", "bossHigh"],
 
     // ⑩ 最終兵器・ウザさ限界突破
     ["君が勝つまで付き合うよ！ ……僕は負けないから、ずっと会えるねｗ", "again"],
     ["君のこと、忘れないよ！ 何回も来てくれるからねｗ", "!again"],
     ["今回の敗北をバネにして頑張ろう！ ……バネ、折れないといいねｗ", ""],
-    ["君には無限の可能性がある！ ただし、勝利する可能性がいつ来るかは未定ですｗ", "deep"],
+    [
+        "君には無限の可能性がある！ ただし、勝利する可能性がいつ来るかは未定ですｗ",
+        "deep",
+    ],
     ["君の挑戦は無駄じゃないよ！ 僕が強くなった気がするからｗ", "rl"],
-    ["君はまだ本気を出してないんだよね？ ……え、出してたの？ そっかぁｗ", "still instant"],
+    [
+        "君はまだ本気を出してないんだよね？ ……え、出してたの？ そっかぁｗ",
+        "still instant",
+    ],
     ["次は勝てる！ 次の次も勝てる！ ……僕がねｗ", "retry"],
-    ["君の伝説はここから始まる！ 『何度挑んでも勝てなかった者』としてｗ", "retry"],
-    ["ゲームオーバー！ 君の冒険は終わったけど、僕の休憩時間が始まったよｗ", "long"],
+    [
+        "君の伝説はここから始まる！ 『何度挑んでも勝てなかった者』としてｗ",
+        "retry",
+    ],
+    [
+        "ゲームオーバー！ 君の冒険は終わったけど、僕の休憩時間が始まったよｗ",
+        "long",
+    ],
 ];
 
 /* ============================================================================
@@ -438,7 +530,10 @@ const ORBS = {
         hint: "ボスが.....",
         apply() {
             player.hp = Math.min(playerMaxHp, player.hp + RED_PLAYER_HEAL);
-            boss.hp = Math.min(boss.max, boss.hp + Math.round(boss.max * gameMode.bossHealRatio));
+            boss.hp = Math.min(
+                boss.max,
+                boss.hp + Math.round(boss.max * gameMode.bossHealRatio),
+            );
             if (dmgMul < gameMode.redDmgMul) dmgMul = gameMode.redDmgMul; // attack power up (once)
         },
     },
@@ -470,7 +565,13 @@ const ORBS = {
         name: "黄",
         hint: "時間が.....",
         apply() {
-            if (detour || boss.hp <= 0 || phase < DETOUR_MIN_FORM || phase > gameMode.detourMaxForm) return; // no effect
+            if (
+                detour ||
+                boss.hp <= 0 ||
+                phase < DETOUR_MIN_FORM ||
+                phase > gameMode.detourMaxForm
+            )
+                return; // no effect
             detourSave = { hp: boss.hp, max: boss.max, patIdx }; // restored when the form 1 boss is beaten
             detour = true;
             boss.hp = boss.max = BOSS_HP[0];
@@ -489,7 +590,10 @@ const ORBS = {
         apply() {
             state = S.FAKE;
             fakeCount++;
-            fakeTimer = Math.min(FAKE_WAIT_MAX_FRAMES, FAKE_WAIT_FRAMES + (fakeCount - 1) * FAKE_WAIT_ADD_FRAMES);
+            fakeTimer = Math.min(
+                FAKE_WAIT_MAX_FRAMES,
+                FAKE_WAIT_FRAMES + (fakeCount - 1) * FAKE_WAIT_ADD_FRAMES,
+            );
         },
     },
 };
@@ -501,7 +605,22 @@ const SELECT_ORBS = ["invert", "heal", "gag", "double", "fake"];
 
 // Orbs that fall from the sky (the position is random, the order is fixed)
 // (14 slots: red "heal" twice, purple "fake" twice, yellow "back" once)
-const ORB_ORDER_MAIN = ["gag", "double", "fake", "invert", "back", "double", "heal", "gag", "invert", "heal", "fake", "double", "gag", "invert"];
+const ORB_ORDER_MAIN = [
+    "gag",
+    "double",
+    "fake",
+    "invert",
+    "back",
+    "double",
+    "heal",
+    "gag",
+    "invert",
+    "heal",
+    "fake",
+    "double",
+    "gag",
+    "invert",
+];
 // Used by the "orbs" pattern: only the first 6 slots are ever used (one purple, one red).
 const ORB_ORDER_PATTERN = ["gag", "double", "fake", "invert", "heal", "back"];
 
@@ -537,20 +656,51 @@ const BULLET_TYPES = {
     cyan: { color: "#5cf" }, // used by the "follow" pattern
     aqua: { color: "#0ff" }, // used by the "fake homing" pattern
     // the big orange bullets of the wall. A whole ROW moves together (see wallPath / wallPace).
-    wall: { r: 6, color: "#f80", path: "wallPath", paces: ["wallPace"], randomTempo: false },
+    wall: {
+        r: 6,
+        color: "#f80",
+        path: "wallPath",
+        paces: ["wallPace"],
+        randomTempo: false,
+    },
     homing: { r: 6, color: "#f6f", path: "homing", homeFrames: 80 }, // chases the player for a while
     trail: { r: 4, color: "#fa0", delay: 40 }, // left behind the player, appears later
 
     // ---- 理不尽 mode bullets (used by the forms 5-7 patterns). All of them have a FIXED timing
     // (randomTempo: false) so the player can learn them. ----
     // looks exactly like "normal", but at the last moment (age = lateAt) it aims at you once
-    lateHome: { color: "#f55", path: "lateHome", lateAt: 40, randomTempo: false },
+    lateHome: {
+        color: "#f55",
+        path: "lateHome",
+        lateAt: 40,
+        randomTempo: false,
+    },
     // flies, STOPS (holdLen frames), then every bullet of the volley sets off toward you together
-    freeze: { r: 5, color: "#8cf", path: "freezeAim", paces: ["wave", "holdPace"], holdAt: 28, holdLen: 70, randomTempo: false },
+    freeze: {
+        r: 5,
+        color: "#8cf",
+        path: "freezeAim",
+        paces: ["wave", "holdPace"],
+        holdAt: 28,
+        holdLen: 70,
+        randomTempo: false,
+    },
     // goes out, then turns around and comes back the same way (age = turnAt)
-    boomerang: { r: 6, color: "#6f6", path: "boomerang", turnAt: 60, randomTempo: false },
+    boomerang: {
+        r: 6,
+        color: "#6f6",
+        path: "boomerang",
+        turnAt: 60,
+        randomTempo: false,
+    },
     // bursts into a small ring of normal bullets (age = splitAt)
-    splitter: { r: 7, color: "#fc6", path: "splitter", splitAt: 60, randomTempo: false },
+    splitter: {
+        r: 7,
+        color: "#fc6",
+        path: "splitter",
+        splitAt: 60,
+        randomTempo: false,
+    },
     // big and slow
     big: { r: 11, color: "#e8e", randomTempo: false },
     // starts slow and keeps speeding up
@@ -558,7 +708,13 @@ const BULLET_TYPES = {
     // appears (faint) at its spawn point, and only starts moving after `delay` frames
     lag: { r: 5, color: "#ddd", delay: 35, randomTempo: false },
     // curves, and the curve gets weaker and weaker (pass { turn: -0.03 } to curve the other way)
-    swirl: { r: 4, color: "#4fc", path: "swirlFade", turn: 0.03, randomTempo: false },
+    swirl: {
+        r: 4,
+        color: "#4fc",
+        path: "swirlFade",
+        turn: 0.03,
+        randomTempo: false,
+    },
 };
 
 /* ============================================================================
@@ -592,7 +748,8 @@ const PACES = {
     slowDown: (b) => Math.max(0.3, 1 - b.age / 85),
 
     // freeze bullets: normal speed, then stopped for holdLen frames, then normal again
-    holdPace: (b) => (b.age < b.holdAt ? 1 : b.age < b.holdAt + b.holdLen ? 0 : 1),
+    holdPace: (b) =>
+        b.age < b.holdAt ? 1 : b.age < b.holdAt + b.holdLen ? 0 : 1,
 
     // accel bullets: crawls at first, then speeds up to about twice the normal speed
     ramp: (b) => Math.min(2.2, 0.35 + b.age / 40),
@@ -775,7 +932,8 @@ const wallIsWave = () => (gameMode.wallVariety ? wallWave : gameMode.rowWave);
 function wallPickStyle() {
     if (!gameMode.wallVariety) return;
     wallCount++;
-    wallWave = wallCount === 1 ? true : wallCount === 2 ? false : Math.random() < 0.5;
+    wallWave =
+        wallCount === 1 ? true : wallCount === 2 ? false : Math.random() < 0.5;
 }
 let wallStepFrame = -1; // the frame in which the rows were last moved (they move once per frame)
 // 通常モード (mode.rowWave = false): the WHOLE wall shares one speed wave and stops / dashes together
@@ -786,7 +944,8 @@ let wallNextEvent = 0; // frame when the next whole-wall event starts
 let wallFiring = false; // the pattern is still firing rows (new whole-wall events start only then)
 function startWallEvent() {
     let roll = Math.random() * WALL_EVENTS.reduce((s, e) => s + e.weight, 0);
-    const def = WALL_EVENTS.find((e) => (roll -= e.weight) < 0) || WALL_EVENTS[0];
+    const def =
+        WALL_EVENTS.find((e) => (roll -= e.weight) < 0) || WALL_EVENTS[0];
     const slow = def.slow ? rand(...def.slow) : 0;
     const len = rand(...def.len);
     wallEvent = { kind: def.kind, start: frame, slow, len };
@@ -862,7 +1021,14 @@ function wallRowFactor(b) {
     return b.row ? b.row.f : 1;
 }
 function newWallRow() {
-    return { y: -8, idx: wallRows, f: 0, mode: "flow", stopStart: 0, dashStart: null }; // f = 0: it starts to move next frame
+    return {
+        y: -8,
+        idx: wallRows,
+        f: 0,
+        mode: "flow",
+        stopStart: 0,
+        dashStart: null,
+    }; // f = 0: it starts to move next frame
 }
 
 // The wall pattern as a function: dir = 1 sweeps the gap to the right first, dir = -1 (mirrored) to the left first.
@@ -883,13 +1049,15 @@ function wallRun(t, dir) {
     // A wider screen gets a larger but slower sweep, so the gap speed stays dodgeable.
     const slope = wallIsWave() ? WALL_GAP_SLOPE_DASH : WALL_GAP_SLOPE;
     const amp = wallIsWave() ? WALL_GAP_AMP_DASH : 150;
-    const gap = CX + dir * Math.sin(wallRows * slope * (480 / W)) * amp * (W / 480);
+    const gap =
+        CX + dir * Math.sin(wallRows * slope * (480 / W)) * amp * (W / 480);
     const shift = wallRows % 2 ? 12 : 0;
     const row = newWallRow();
     row.gap = gap; // where the gap of this row is (only used by tools/smoke-test.js)
     wallList.push(row);
     for (let x = 10 + shift; x < W; x += 24) {
-        if (Math.abs(x - gap) > GAP_HALF) shoot("wall", x, row.y, PI / 2, WALL_SPEED, { row });
+        if (Math.abs(x - gap) > GAP_HALF)
+            shoot("wall", x, row.y, PI / 2, WALL_SPEED, { row });
     }
     wallRows++;
 }
@@ -913,7 +1081,14 @@ let sealAlt = false; // false = A, true = B (flips on every seal, also across pl
 function sealSide(side) {
     const start = sealAlt ? 80 : 40;
     for (let d = start; d < W / 2 + (sealAlt ? 1 : 0); d += 80)
-        beam({ x: CX + side * d, y: 0, angle: PI / 2, warn: 60, dur: 40, width: 36 });
+        beam({
+            x: CX + side * d,
+            y: 0,
+            angle: PI / 2,
+            warn: 60,
+            dur: 40,
+            width: 36,
+        });
     sealAlt = !sealAlt;
 }
 
@@ -922,7 +1097,8 @@ function sealSide(side) {
 // beamAlt(name, t) is false for the 1st, 3rd, ... play and true for the 2nd, 4th, ... play. Call it every frame.
 const beamAltState = {};
 function beamAlt(name, t) {
-    const s = beamAltState[name] || (beamAltState[name] = { plays: 0, alt: false });
+    const s =
+        beamAltState[name] || (beamAltState[name] = { plays: 0, alt: false });
     if (t === 0) {
         s.alt = s.plays % 2 === 1;
         s.plays++;
@@ -937,8 +1113,168 @@ let sealYAlt = false;
 function sealHalfY(side) {
     const start = sealYAlt ? 80 : 40;
     for (let d = start; d < H / 2 + (sealYAlt ? 1 : 0); d += 80)
-        beam({ x: 0, y: H / 2 + side * d, angle: 0, warn: 60, dur: 40, width: 36 });
+        beam({
+            x: 0,
+            y: H / 2 + side * d,
+            angle: 0,
+            warn: 60,
+            dur: 40,
+            width: 36,
+        });
     sealYAlt = !sealYAlt;
+}
+
+/* ----------------------------------------------------------------------------
+ *  攻撃タイムライン（第4形態専用 /beta）  別名: 連続攻撃シーケンス / 攻撃キュー
+ *
+ *  予告線(warn)とビーム(beam)を「別々の攻撃要素」として並べ、書いた順に連続して発生させる。
+ *  各要素は自分のタイミングで始まり、前の要素が終わる前に次が始まってもよい（重なる）。
+ *
+ *    例:  予告線1 → 予告線2 → ビーム1 → 予告線3 → ビーム2 → ビーム3
+ *
+ *  要素の種類（kind）:
+ *    warn  予告線。vis フレームだけ表示されて消える。当たり判定なし
+ *    beam  ビーム。dur フレームだけ出る。ref に予告線の id を書くと「その予告線が出た位置」に出る
+ *    do    その瞬間に fn(t) を呼ぶ（弾を撃つなど）
+ *
+ *  開始タイミング（上から順に、どれか1つ）:
+ *    at: 30           パターン開始から30フレーム後
+ *    after: "w1"      id が "w1" の要素が終わってから（gap フレーム後）
+ *    gap: 25          1つ前の要素が「始まって」から25フレーム後（省略時 0 = 同時）
+ *
+ *  geom() は発射の瞬間に呼ばれ { x, y, angle, width, bounces } を返す。
+ *  予告線の位置はその時点で固定されるので、自機を狙う線は「予告線が出た時の自機位置」に出る。
+ * -------------------------------------------------------------------------- */
+function attackTimeline(events, tail = 20) {
+    const refs = {}; // 予告線が出た位置（beam の ref から参照される）
+    const ends = {}; // id -> その要素が終わるフレーム
+    let prevStart = 0;
+    const list = events.map((e) => {
+        let start;
+        if (e.at !== undefined) start = e.at;
+        else if (e.after) {
+            if (ends[e.after] === undefined)
+                throw new Error(
+                    'attackTimeline: after "' +
+                        e.after +
+                        '" は先に書いた id である必要があります',
+                );
+            start = ends[e.after] + (e.gap || 0);
+        } else start = prevStart + (e.gap || 0);
+        const len = e.kind === "warn" ? e.vis : e.kind === "beam" ? e.dur : 0;
+        if (e.id) ends[e.id] = start + len;
+        prevStart = start;
+        return { ...e, start, end: start + len };
+    });
+    const fireOne = (e, t) => {
+        if (e.kind === "do") return e.fn(t);
+        const saved = e.kind === "beam" && e.ref ? refs[e.ref] : null;
+        const g = saved || e.geom();
+        if (e.kind === "warn") {
+            if (e.id) refs[e.id] = g;
+            beam({ ...g, warn: e.vis, warnVis: e.vis, dur: 0 }); // 表示だけ（vis フレームで消える）
+        } else {
+            beam({ ...g, warn: 0, warnVis: -1, dur: e.dur }); // 予告なしで即ビーム（予告線は別要素）
+        }
+    };
+    return {
+        duration: Math.max(...list.map((e) => e.end)) + tail,
+        run(t) {
+            if (t === 0) for (const k in refs) delete refs[k];
+            for (const e of list) if (e.start === t) fireOne(e, t);
+        },
+    };
+}
+
+// 第4形態のタイムライン一式。
+//   vis   = 予告線が見えているフレーム数（60フレーム = 約1秒）
+//   wait  = 予告線が消えてから、ビームが出るまでのフレーム数（予告線の位置を覚えて待つ）
+//   shots = 待っている間に自機狙いの弾を撃つか
+function form4Patterns(sfx, vis, wait, shots) {
+    // geom の部品（CX / boss / player は発射の瞬間に読む）
+    const V = (dx, w) => () => ({ x: CX + dx, y: 0, angle: PI / 2, width: w }); // 縦ビーム（中央からdx）
+    const Hz = (y, w) => () => ({ x: 0, y, angle: 0, width: w }); // 横ビーム
+    const B =
+        (f, w, bounces = 0) =>
+        () => ({
+            x: boss.x,
+            y: boss.y + BOSS_MUZZLE_Y,
+            angle: PI * f,
+            width: w,
+            bounces,
+        }); // ボスから角度 PI*f（反射 bounces 回）
+    const PV = (w) => () => ({ x: player.x, y: 0, angle: PI / 2, width: w }); // 自機の縦線
+    const PH = (w) => () => ({ x: 0, y: player.y, angle: 0, width: w }); // 自機の横線
+    const PA = (w) => () => ({
+        x: boss.x,
+        y: boss.y + BOSS_MUZZLE_Y,
+        angle: aim(boss.x, boss.y + BOSS_MUZZLE_Y, player),
+        width: w,
+        bounces: 0,
+    }); // ボスから自機への直線
+    // 要素
+    const warn = (id, geom, gap = 25) => ({ kind: "warn", id, geom, vis, gap });
+    const blast = (id, ref, dur = 40) => ({
+        kind: "beam",
+        id,
+        ref,
+        dur,
+        after: ref,
+        gap: wait,
+    }); // ref の予告線が消えて wait フレーム後に出る
+    const aimShot = () => bossShot("normal", aimFromBoss(), 2.6);
+    // 待ち時間の間に弾を4発（予告線を出し終わってから 1秒おき）
+    const waitShots = () =>
+        shots
+            ? [60, 60, 60, 60].map((gap) => ({ kind: "do", gap, fn: aimShot }))
+            : [];
+    // 予告線5本 → 待ち時間 → ビーム5本、の形
+    const five = (geoms, dur = 40) => [
+        ...geoms.map((g, i) => warn("w" + i, g, i ? undefined : 0)),
+        ...waitShots(),
+        ...geoms.map((g, i) => blast("b" + i, "w" + i, dur)),
+    ];
+
+    return {
+        // 縦3本・横2本の格子
+        ["seqCross" + sfx]: attackTimeline(
+            five([V(-150, 34), Hz(200, 34), V(150, 34), Hz(400, 34), V(0, 34)]),
+        ),
+        // ボスから扇状に5本
+        ["seqFan" + sfx]: attackTimeline(
+            five([
+                B(0.2, 26),
+                B(0.35, 26),
+                B(0.5, 26),
+                B(0.65, 26),
+                B(0.8, 26),
+            ]),
+        ),
+        // 壁で3回反射するビーム4本 + まっすぐ下へ1本
+        ["seqReflect" + sfx]: attackTimeline(
+            five(
+                [
+                    B(0.25, 14, 3),
+                    B(0.75, 14, 3),
+                    B(0.5, 18),
+                    B(0.35, 14, 3),
+                    B(0.65, 14, 3),
+                ],
+                55,
+            ),
+        ),
+        // 予告線が出た瞬間の自機位置を狙う（動き続けないと意味がない）
+        ["seqAim" + sfx]: attackTimeline(
+            five([PV(26), PH(26), PA(22), PV(26), PH(26)]),
+        ),
+        // 縦ビームで左右を封鎖 + 真ん中 + 横2本
+        ["seqCage" + sfx]: attackTimeline(
+            five(
+                [V(-180, 50), V(180, 50), V(0, 80), Hz(220, 34), Hz(420, 34)],
+                45,
+            ),
+        ),
+    };
 }
 
 const PATTERNS = {
@@ -990,7 +1326,14 @@ const PATTERNS = {
         duration: 260,
         run(t) {
             if (t === 10 || t === 130)
-                beam({ x: player.x, y: 0, angle: PI / 2, warn: 50, dur: 30, width: 18 });
+                beam({
+                    x: player.x,
+                    y: 0,
+                    angle: PI / 2,
+                    warn: 50,
+                    dur: 30,
+                    width: 18,
+                });
             if (t % 40 === 0) bossRing("normal", 10, 2.2, t);
         },
     },
@@ -1010,7 +1353,8 @@ const PATTERNS = {
         duration: 300,
         run(t) {
             if (t % 8 === 0) shoot("trail", player.x, player.y, PI / 2, 1.5);
-            if (t % 70 === 0) bossShot("homing", aimFromBoss(), 2.4, { homeFrames: 60 });
+            if (t % 70 === 0)
+                bossShot("homing", aimFromBoss(), 2.4, { homeFrames: 60 });
         },
     },
 
@@ -1025,12 +1369,21 @@ const PATTERNS = {
                 const n = Math.floor(W / 80),
                     x0 = (W - (n - 1) * 80) / 2;
                 for (let i = 0; i < n; i++)
-                    beam({ x: x0 + i * 80 + offset, y: 0, angle: PI / 2, warn: 70, dur: 40, width: 36 });
+                    beam({
+                        x: x0 + i * 80 + offset,
+                        y: 0,
+                        angle: PI / 2,
+                        warn: 70,
+                        dur: 40,
+                        width: 36,
+                    });
             }
             // 3 horizontal beams per wave, fired between the vertical waves
             if (t === 70 || t === 210) {
-                const ys = (t === 70) !== alt ? [180, 340, 500] : [260, 420, 580];
-                for (const y of ys) beam({ x: 0, y, angle: 0, warn: 50, dur: 40, width: 36 });
+                const ys =
+                    (t === 70) !== alt ? [180, 340, 500] : [260, 420, 580];
+                for (const y of ys)
+                    beam({ x: 0, y, angle: 0, warn: 50, dur: 40, width: 36 });
             }
             if (t % 45 === 20) bossShot("normal", aimFromBoss(), 3);
         },
@@ -1066,7 +1419,11 @@ const PATTERNS = {
                 a = aimFromBoss(),
                 early = count < 3;
             for (let i = -4; i <= 4; i++)
-                bossShot(early ? "normal" : "yellow", a + i * 0.17, early ? 3 : 4.4);
+                bossShot(
+                    early ? "normal" : "yellow",
+                    a + i * 0.17,
+                    early ? 3 : 4.4,
+                );
             if (count === 3) later(20, () => bossRing("yellow", 14, 2.4, 0));
         },
     },
@@ -1076,7 +1433,11 @@ const PATTERNS = {
         duration: 300,
         run(t) {
             if (t % 40 === 0)
-                bossShot("aqua", aim(boss.x, boss.y + BOSS_MUZZLE_Y, history[0] || player), 3.6);
+                bossShot(
+                    "aqua",
+                    aim(boss.x, boss.y + BOSS_MUZZLE_Y, history[0] || player),
+                    3.6,
+                );
             if (t % 90 === 45) bossRing("normal", 8, 2, 0);
         },
     },
@@ -1105,7 +1466,9 @@ const PATTERNS = {
         duration: 320,
         run(t) {
             if (t % 50 === 0 && t < 300)
-                spawnOrb(ORB_ORDER_PATTERN[(t / 50) % ORB_ORDER_PATTERN.length]);
+                spawnOrb(
+                    ORB_ORDER_PATTERN[(t / 50) % ORB_ORDER_PATTERN.length],
+                );
             if (t % 45 === 0) bossRing("normal", 8, 2.1, t);
         },
     },
@@ -1120,7 +1483,8 @@ const PATTERNS = {
         run(t) {
             if (t % 60 !== 0 || t >= 240) return;
             const a = aimFromBoss();
-            for (let i = -4; i <= 4; i++) bossShot(t / 60 < 3 ? "normal" : "lateHome", a + i * 0.17, 3);
+            for (let i = -4; i <= 4; i++)
+                bossShot(t / 60 < 3 ? "normal" : "lateHome", a + i * 0.17, 3);
         },
     },
 
@@ -1148,7 +1512,13 @@ const PATTERNS = {
         run(t) {
             if (t % 90 === 0 && t < 270) {
                 const left = (t / 90) % 2 === 0;
-                shoot("boomerang", left ? -8 : W + 8, player.y, left ? 0 : PI, 4.2);
+                shoot(
+                    "boomerang",
+                    left ? -8 : W + 8,
+                    player.y,
+                    left ? 0 : PI,
+                    4.2,
+                );
             }
             if (t % 60 === 30) bossShot("normal", aimFromBoss(), 3);
         },
@@ -1158,7 +1528,8 @@ const PATTERNS = {
     burst: {
         duration: 300,
         run(t) {
-            if (t % 70 === 0 && t < 240) bossShot("splitter", aimFromBoss(), 2.0);
+            if (t % 70 === 0 && t < 240)
+                bossShot("splitter", aimFromBoss(), 2.0);
             if (t % 90 === 45) bossRing("normal", 8, 2, t * 0.1);
         },
     },
@@ -1168,7 +1539,14 @@ const PATTERNS = {
         duration: 320,
         run(t) {
             if (t % 60 === 0 && t < 260)
-                for (const dx of [-110, 0, 110]) shoot("big", boss.x + dx, boss.y + BOSS_MUZZLE_Y, PI / 2, 1.6);
+                for (const dx of [-110, 0, 110])
+                    shoot(
+                        "big",
+                        boss.x + dx,
+                        boss.y + BOSS_MUZZLE_Y,
+                        PI / 2,
+                        1.6,
+                    );
             if (t % 45 === 0) bossShot("accel", aimFromBoss(), 3);
         },
     },
@@ -1193,7 +1571,10 @@ const PATTERNS = {
     swirl: {
         duration: 300,
         run(t) {
-            if (t % 30 === 0 && t < 270) bossRing("swirl", 8, 2.6, t * 0.2, { turn: (t / 30) % 2 ? 0.03 : -0.03 });
+            if (t % 30 === 0 && t < 270)
+                bossRing("swirl", 8, 2.6, t * 0.2, {
+                    turn: (t / 30) % 2 ? 0.03 : -0.03,
+                });
         },
     },
 
@@ -1219,7 +1600,8 @@ const PATTERNS = {
                 }
             }
             habitSide = side;
-            if (habitSame >= 1) sealSide(side); // stayed on one side
+            if (habitSame >= 1)
+                sealSide(side); // stayed on one side
             else if (habitFlip >= 2) sealSide(-side); // keeps switching sides: seal where you go next
         },
     },
@@ -1246,7 +1628,8 @@ const PATTERNS = {
                 }
             }
             habitYSide = side;
-            if (habitYSame >= 1) sealHalfY(side); // stayed in one half
+            if (habitYSame >= 1)
+                sealHalfY(side); // stayed in one half
             else if (habitYFlip >= 2) sealHalfY(-side); // keeps switching halves: seal where you go next
         },
     },
@@ -1258,10 +1641,14 @@ const PATTERNS = {
             if (t === 0) camperN = 0;
             if (t % 30 !== 0) return;
             const old = history[0] || player;
-            camperN = Math.hypot(old.x - player.x, old.y - player.y) < 40 ? camperN + 1 : 0;
+            camperN =
+                Math.hypot(old.x - player.x, old.y - player.y) < 40
+                    ? camperN + 1
+                    : 0;
             if (camperN >= 3) {
                 const a = aimFromBoss();
-                for (let i = -2; i <= 2; i++) bossShot("normal", a + i * 0.14, 3.4);
+                for (let i = -2; i <= 2; i++)
+                    bossShot("normal", a + i * 0.14, 3.4);
             }
         },
     },
@@ -1277,153 +1664,10 @@ const PATTERNS = {
         },
     },
 
-    // ---- 第4形態専用ビームパターン ----
-    // 設計: 予告線①(1秒表示→消える) → 間隔 → 予告線②(1秒表示→消える) → 放射
-    //   デコイ beam: warn=70, warnVis=60, dur=0  → 警告のみ・命中判定なし
-    //   本命 beam : warn=60, warnVis=60, dur=55  → 警告後に実際に放射
-    //
-    // beamGrid: 縦横格子ビーム（デコイ→本命で位置が変わる）
-    beamGrid: {
-        duration: 330,
-        run(t) {
-            if (t === 0) {
-                beamAlt("beamGrid", t); // alt フラグ確定
-                // ① デコイ予告: 4本縦ビーム（位置A）
-                for (const x of [CX - 180, CX - 60, CX + 60, CX + 180])
-                    if (x > 20 && x < W - 20)
-                        beam({ x, y: 0, angle: PI / 2, warn: 70, warnVis: 60, dur: 0, width: 30 });
-                // デコイ横2本
-                for (const y of [180, 420])
-                    beam({ x: 0, y, angle: 0, warn: 70, warnVis: 60, dur: 0, width: 30 });
-            }
-            if (t === 120) {
-                // ② 本命予告: 3本縦ビーム（位置B）+ 横2本（位置変更）→ 60フレーム後に放射
-                const alt = beamAlt("beamGrid", 1);
-                for (const x of (alt ? [CX - 150, CX + 150] : [CX - 120, CX, CX + 120]))
-                    if (x > 20 && x < W - 20)
-                        beam({ x, y: 0, angle: PI / 2, warn: 60, warnVis: 60, dur: 55, width: 34 });
-                for (const y of (alt ? [260, 460] : [220, 420]))
-                    beam({ x: 0, y, angle: 0, warn: 60, warnVis: 60, dur: 55, width: 34 });
-            }
-            // 弾幕: デコイ警告中と放射後のみ（量を抑える）
-            if (t === 40 || t === 255) bossShot("normal", aimFromBoss(), 2.8);
-            if (t === 95) bossRing("normal", 8, 1.9, t * 0.1);
-        },
-    },
-
-    // beamReflect: 反射ビーム（デコイで少数→本命で多数・角度変化）
-    beamReflect: {
-        duration: 330,
-        run(t) {
-            if (t === 0) {
-                beamAlt("beamReflect", t);
-                // ① デコイ予告: 2本のバウンドビーム（浅い角度）
-                for (const f of [0.25, 0.75])
-                    beam({
-                        x: boss.x, y: boss.y + BOSS_MUZZLE_Y,
-                        angle: PI * f, warn: 70, warnVis: 60, dur: 0, width: 12, bounces: 3,
-                    });
-            }
-            if (t === 120) {
-                // ② 本命予告: 4本・角度を変えて放射（デコイとは別の位置を走る）
-                const alt = beamAlt("beamReflect", 1);
-                for (const f of (alt ? [0.22, 0.42, 0.58, 0.78] : [0.18, 0.35, 0.65, 0.82]))
-                    beam({
-                        x: boss.x, y: boss.y + BOSS_MUZZLE_Y,
-                        angle: PI * f, warn: 60, warnVis: 60, dur: 60, width: 14, bounces: 3,
-                    });
-            }
-            // 弾幕: リング1回 + 追尾1発（控えめ）
-            if (t === 80) bossRing("normal", 8, 2.0, t);
-            if (t === 250) bossShot("homing", aimFromBoss(), 2.3, { homeFrames: 50 });
-        },
-    },
-
-    // beamAim: 自機追跡ロックオン（デコイで現在位置を捉える→本命で逃げた先を捉える）
-    beamAim: {
-        duration: 330,
-        run(t) {
-            if (t === 0) {
-                // ① デコイ予告: 今いる位置に十字線（「ここか？」と見せかける）
-                beam({ x: player.x, y: 0, angle: PI / 2, warn: 70, warnVis: 60, dur: 0, width: 24 });
-                beam({ x: 0, y: player.y, angle: 0, warn: 70, warnVis: 60, dur: 0, width: 24 });
-            }
-            if (t === 120) {
-                // ② 本命予告: 逃げた先の位置を再ロック + ボスからの直線も追加
-                beam({ x: player.x, y: 0, angle: PI / 2, warn: 60, warnVis: 60, dur: 55, width: 26 });
-                beam({ x: 0, y: player.y, angle: 0, warn: 60, warnVis: 60, dur: 55, width: 26 });
-                beam({
-                    x: boss.x, y: boss.y + BOSS_MUZZLE_Y,
-                    angle: aim(boss.x, boss.y + BOSS_MUZZLE_Y, player),
-                    warn: 60, warnVis: 60, dur: 55, width: 20,
-                });
-            }
-            // 弾幕: デコイ中と放射後のみ（動かざるをえないが多すぎない）
-            if (t === 45 || t === 260) {
-                const a = aimFromBoss();
-                bossShot("normal", a - 0.28, 2.6);
-                bossShot("normal", a + 0.28, 2.6);
-            }
-            if (t === 90) bossRing("normal", 8, 1.8, t * 0.1);
-        },
-    },
-
-    // beamFan: 扇状ビーム（デコイで広角→本命で角度が変化・絞られる）
-    beamFan: {
-        duration: 330,
-        run(t) {
-            if (t === 0) {
-                beamAlt("beamFan", t);
-                // ① デコイ予告: 広角に4本（どこが本命か分からない）
-                for (const f of [0.2, 0.4, 0.6, 0.8])
-                    beam({
-                        x: boss.x, y: boss.y + BOSS_MUZZLE_Y,
-                        angle: PI * f, warn: 70, warnVis: 60, dur: 0, width: 22,
-                    });
-            }
-            if (t === 120) {
-                // ② 本命予告: alt で左寄り/右寄りの3本に変化
-                const alt = beamAlt("beamFan", 1);
-                for (const f of (alt ? [0.25, 0.45, 0.65] : [0.35, 0.55, 0.75]))
-                    beam({
-                        x: boss.x, y: boss.y + BOSS_MUZZLE_Y,
-                        angle: PI * f, warn: 60, warnVis: 60, dur: 60, width: 26,
-                    });
-            }
-            // 弾幕: 自機狙い2発とリング1回（控えめ）
-            if (t === 50 || t === 255) bossShot("normal", aimFromBoss(), 2.7);
-            if (t === 90) bossRing("normal", 10, 1.8, t * 0.08);
-        },
-    },
-
-    // beamCage: 封鎖ビーム（デコイで外側→本命で内側に締まる）
-    beamCage: {
-        duration: 330,
-        run(t) {
-            if (t === 0) {
-                beamAlt("beamCage", t);
-                // ① デコイ予告: 外側2本（広い範囲に見せる）
-                beam({ x: CX - 180, y: 0, angle: PI / 2, warn: 70, warnVis: 60, dur: 0, width: 50 });
-                beam({ x: CX + 180, y: 0, angle: PI / 2, warn: 70, warnVis: 60, dur: 0, width: 50 });
-            }
-            if (t === 120) {
-                // ② 本命予告: alt で中央封鎖 / 内側2本に締まる
-                const alt = beamAlt("beamCage", 1);
-                if (alt) {
-                    beam({ x: CX, y: 0, angle: PI / 2, warn: 60, warnVis: 60, dur: 55, width: 90 });
-                } else {
-                    beam({ x: CX - 120, y: 0, angle: PI / 2, warn: 60, warnVis: 60, dur: 55, width: 60 });
-                    beam({ x: CX + 120, y: 0, angle: PI / 2, warn: 60, warnVis: 60, dur: 55, width: 60 });
-                }
-            }
-            // 弾幕: デコイ後と放射後に自機狙い（狭いエリアで避ける）
-            if (t === 80 || t === 260) {
-                bossShot("normal", aimFromBoss(), 2.8);
-                bossShot("normal", aimFromBoss() + 0.3, 2.3);
-                bossShot("normal", aimFromBoss() - 0.3, 2.3);
-            }
-        },
-    },
+    // ---- 第4形態: 攻撃タイムライン（予告線とビームを別々の攻撃要素として順番に実行）----
+    // 中身は form4Patterns() （PATTERNS の直前）にある。"" = 通常 / "H" = 理不尽モード用（今は同じ値。別々に調整できる）
+    ...form4Patterns("", 120, 240, true), // 予告線2秒 → 消えて4秒後にビーム
+    ...form4Patterns("H", 120, 240, true),
 };
 
 // Attack order of each form. Every inner list runs at the same time;
@@ -1454,7 +1698,13 @@ const SEQUENCES_HARD = [
     // form 5 「覚えた奴ほど死ぬ」: things you learned, with a twist at the end
     [["rep3"], ["wallR"], ["freezeRing"], ["boom"], ["burst"]],
     // form 6 「プレイヤー対策」: reacts to how you move
-    [["habit"], ["surround"], ["habit", "boom"], ["swirl", "burst"], ["pressure", "camper"]],
+    [
+        ["habit"],
+        ["surround"],
+        ["habit", "boom"],
+        ["swirl", "burst"],
+        ["pressure", "camper"],
+    ],
     // form 7 「最終理不尽」: everything together (rage = extra attacks when the boss HP is low)
     [
         ["rep3", "freezeRing", "rage"],
@@ -1471,22 +1721,22 @@ const SEQUENCES_HARD = [
 // ---- eased attack lists (forms 1-3 are untouched; from form 4 fewer patterns run at the same time) ----
 // SEQUENCES / SEQUENCES_HARD above are NOT edited: the RLモード builds its list of actions from SEQUENCES_HARD,
 // and its learned data (data/rl-model.json, rl-pretrained.js) depends on that list.
-// ---- 第4形態: ビームを連鎖展開＋弾幕強化シーケンス ----
+// ---- 第4形態: 攻撃タイムライン（予告線とビームを順番に連続実行。詳細は attackTimeline() ）----
 const FORM4_EASED = [
-    ["beamGrid", "beamFan"],          // 格子ビーム＋扇状ビームが同時展開
-    ["beamReflect", "beamAim"],       // 反射ビーム＋ロックオン十字が同時展開
-    ["beamCage", "beamFan"],          // ケージ封鎖＋扇が同時 → 安全地帯が極めて狭い
-    ["beamGrid", "beamReflect"],      // 格子＋反射が同時 → 壁バウンドが格子を縦横に走る
-    ["beamAim", "beamCage"],          // ロックオン＋ケージで逃げ場を絞る
+    ["seqCross"],
+    ["seqFan"],
+    ["seqReflect"],
+    ["seqAim"],
+    ["seqCage"],
 ];
 const SEQUENCES_EASED = [SEQUENCES[0], SEQUENCES[1], SEQUENCES[2], FORM4_EASED]; // 通常モード
-// 理不尽モード forms 4-7: 第4形態はビーム連鎖展開、forms 5-7 は理不尽攻撃
+// 理不尽モード forms 4-7: 第4形態は攻撃タイムライン、forms 5-7 は理不尽攻撃
 const FORM4_HARD = [
-    ["beamGrid", "beamFan"],          // 格子＋扇 同時
-    ["beamReflect", "beamAim"],       // 反射＋ロックオン 同時
-    ["beamCage", "beamReflect"],      // ケージ＋反射 同時 → 3連バウンドがケージの外まで追う
-    ["beamGrid", "beamCage"],         // 格子＋ケージ → 隙間がさらに限定される
-    ["beamAim", "beamFan"],           // ロックオン＋扇で逃げ道を全包囲
+    ["seqCrossH"],
+    ["seqReflectH"],
+    ["seqFanH"],
+    ["seqCageH"],
+    ["seqAimH"],
 ];
 const SEQUENCES_HARD_EASED = [
     SEQUENCES[0],
@@ -1496,7 +1746,14 @@ const SEQUENCES_HARD_EASED = [
     // form 5: the last step now stacks two patterns
     [["rep3"], ["wallR"], ["freezeRing"], ["boom"], ["burst", "rep3"]],
     // form 6: habit+boom and swirl+burst are back; the original last step is split into burst+camper and pressure+camper
-    [["habit"], ["surround"], ["habit", "boom"], ["swirl", "burst"], ["burst", "camper"], ["pressure", "camper"]],
+    [
+        ["habit"],
+        ["surround"],
+        ["habit", "boom"],
+        ["swirl", "burst"],
+        ["burst", "camper"],
+        ["pressure", "camper"],
+    ],
     // form 7: rage is kept; three steps stack patterns again, habitY and surround stay single
     [
         ["rep3", "freezeRing", "rage"],
