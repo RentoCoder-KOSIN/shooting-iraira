@@ -84,7 +84,8 @@ shooting-iraira/
 ブラウザなしで、ゲーム本体をそのまま動かして検証・訓練できる（プレイヤー役は弾を避けるBot）。
 
 ```
-node tools/smoke-test.js            # 画面遷移を一通り動かして例外が出ないか確認
+node tools/smoke-test.js            # 画面遷移を一通り動かして例外が出ないか確認（/beta は --beta）
+node tools/ultra-test.js --oracle   # 超理不尽モード(/beta)の全1000技を作って動かし、予告を見るボットに避けさせる
 node tools/train-rl.js base  5      # 比較用: 理不尽モード(固定順)のボスで被弾率を測る
 node tools/train-rl.js fresh 5      # 学習前のボス(ランダム)で測る
 node tools/train-rl.js eval  5      # rl-pretrained.js の状態で測る（学習はしない）
@@ -135,3 +136,70 @@ audio/
 ## デプロイ
 
 Render の Web Service（`render.yaml`）。Build は `npm install`、Start は `npm start`（= `node server/server.js`）。
+
+## 超理不尽モードの購入（買い切り・/beta）
+
+超理不尽モードは、買った人にだけ遊べる（Stripe Checkout の買い切り）。**鍵はサーバーが持つ**: 買っていない人には `ultra.js` / `ultra-data.js` が 403 で届かず、メニューには「🔒 超理不尽モード」が出て、押すと購入画面(`shop.js`)が開く。
+
+```
+アカウント(server/payments.js) -> 購入する -> Stripe の決済画面 -> Stripe が Webhook で通知 -> 署名を検証して付与 -> ultra.js が届く
+```
+
+- アイテムを付与するのは **署名を検証した Webhook だけ**。ブラウザに戻ってきた(`?purchase=success`)だけでは付与しない。
+- 金額はサーバーのDB(`game_items`)で決まる。ブラウザが送った金額は使わない。
+- 購入履歴(`game_purchases`)は消さない。返金・チャージバックは状態を変えるだけ（アイテムは取り上げる）。
+- Stripe の設定や DB が欠けているときは、課金だけが止まる（超理不尽は鍵つきのまま）。ゲーム本体は動き続ける。
+
+### 環境変数（Render の Environment に設定する。`.env` やリポジトリに書かない）
+
+| 名前 | 内容 |
+|---|---|
+| `DATABASE_URL` | PostgreSQL（課金には必須。無いと課金は無効） |
+| `STRIPE_SECRET_KEY` | `sk_test_...`（テスト）/ `sk_live_...`（本番）。**テストと本番で分ける** |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...`（Stripe の Webhook エンドポイントごとに違う） |
+| `PUBLIC_BASE_URL` | 公開URL 例 `https://xxxx.onrender.com`（決済後の戻り先。末尾の `/` なし） |
+| `ADMIN_PASSWORD` | 管理者用。設定したときだけ `/api/admin/*` が使える。ランキングの既定値は使わない |
+| `ULTRA_PRICE_JPY` | 価格（円）。商品テーブルを**最初に作るときだけ**使う。既定 500。あとの変更は下の管理API |
+| `ULTRA_FREE_FOR_TESTING=1` | 誰でも遊べる（開発用）。**本番に付けない** |
+| `PAYMENTS_MEMORY=1` | DBなしで課金を試す（開発用。再起動で消える） |
+
+### 登録しようとすると「ただいまアカウントの登録・ログインを受け付けていません」と出るとき
+サーバーに、アカウントを保存する場所が無い（= 課金用のDBが用意できていない）。サーバーの起動ログの `[payments]` の行で、原因が分かる。
+
+| ログの内容 | 原因と対処 |
+|---|---|
+| `no PostgreSQL: the shop is off ...` | `DATABASE_URL` が無い（ローカル起動など）。本番は Render の PostgreSQL の接続URLを `DATABASE_URL` に設定する。**ローカルで試すだけなら** `PAYMENTS_MEMORY=1 npm start`（再起動で消える） |
+| `could not prepare the shop tables, the shop is OFF: ...` | DBには繋がったが、表を作れなかった。`...` のメッセージ（権限など）を見る |
+| `PAYMENTS_MEMORY=1 ...` と出ているのに出る | 古いコードが動いている。デプロイ・再起動を確認する |
+
+登録・ログインだけなら Stripe の設定は要らない。**買えるようになる**には、さらに下の Stripe の環境変数が全部要る（足りないときは「ただいま購入を受け付けていません」と出る）。
+`PAYMENTS_MEMORY=1` に本番の Stripe キー(`sk_live_...`)を組み合わせても、課金は有効にならない（再起動で購入記録が消えるため）。
+
+### Stripe の設定
+1. Stripe のダッシュボードで **テストモード**にして、API キー(`sk_test_...`)を取る。
+2. Webhook エンドポイントを追加: URL は `https://（公開URL）/api/stripe/webhook`。送るイベントは
+   `checkout.session.completed` `checkout.session.async_payment_succeeded` `checkout.session.async_payment_failed`
+   `checkout.session.expired` `charge.refunded` `charge.dispute.created`。表示される `whsec_...` を `STRIPE_WEBHOOK_SECRET` に。
+3. テストカード `4242 4242 4242 4242`（有効期限は未来、CVCは任意）で、購入→遊べる、を確認する。
+4. ダッシュボードで返金して、アイテムが取り上げられるのも確認する。
+5. 本番キーに替えるときは、キーと Webhook の `whsec_` の**両方**を本番のものにする。
+
+### 管理API（`ADMIN_PASSWORD` を設定したときだけ。パスワードはリクエストの本文に入れる）
+```
+POST /api/admin/grant  { "password": "...", "username": "player1", "itemId": "ultra_mode" }   決済なしで付与（動作確認・プレゼント）
+POST /api/admin/item   { "password": "...", "itemId": "ultra_mode", "priceJpy": 800 }         価格の変更（50円以上）
+POST /api/admin/item   { "password": "...", "itemId": "ultra_mode", "active": false }         販売停止
+```
+
+### 本番に出す前に（お金が動くので、飛ばさない）
+- [ ] **DBのバックアップ**（Render の PostgreSQL）。起動時に `game_users` `game_sessions` `game_items` `game_purchases` `game_entitlements` `stripe_events` を作る（既存の表には触らない）
+- [ ] PostgreSQL 用のSQLは、このリポジトリのテストでは動かせていない。**テスト用のDBで一度起動して**、購入→付与→返金まで通すこと
+- [ ] 利用規約・プライバシーポリシー・**特定商取引法に基づく表示**を用意して、`shop.js` の `LEGAL_LINKS` にリンクを書く（販売者の名称・所在地・連絡先は本人でないと書けない）
+- [ ] リポジトリを **非公開**にする（GitHub が公開だと `ultra.js` のソースが誰でも読める。サーバーの鍵はファイルの配信を止めるだけ）
+- [ ] 価格を決める（今は仮の500円）
+- [ ] Stripe の本番アカウントの審査・利用条件の確認
+
+### 作りの制約（変えるときの注意）
+- アカウントは「ユーザー名 + パスワード」だけ（メールなし）。パスワードを忘れると復旧できない。メールを取るなら、パスワード再設定を作る必要がある。
+- 付与する処理は `server/payments.js` の `completeCheckout`（DBトランザクション）だけ。ほかの場所で付与を足さない。
+- 確認するコマンド: `node tools/payments-test.js`（サーバー側）/ `node tools/smoke-test.js --beta` / `--locked`（未購入のメニュー）

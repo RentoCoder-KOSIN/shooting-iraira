@@ -98,7 +98,7 @@ let usedAdmin; // invincible mode was on at some point in this run -> not record
 let lastRun; // the finished run: { mode, form, cleared, formMs, totalMs, splits, hp, score, parts, rank }
 let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
 let scoreOpen = false; // the name entry panel is open
-// --- GAME OVER taunt (beta): what the boss says depends on how the player played (see chooseGameOverTaunt) ---
+// --- GAME OVER taunt: what the boss says depends on how the player played (see chooseGameOverTaunt) ---
 let runStats = { hits: 0, hitFrames: [], movingFrames: 0, grazes: 0 }; // this run: hits taken (run frame of each), frames the player moved
 let loseStreak = 0; // losses in a row in this browser session (a real CLEAR resets it; practice / AI runs do not count)
 let prevSurviveFrames = null; // survival (frames) of the previous loss in the streak, null = none yet
@@ -112,8 +112,14 @@ const formCount = () => gameMode.bossHp.length;
 const bossHpOf = (i) => gameMode.bossHp[i];
 const sequencesOf = () => gameMode.sequences;
 // Mode select entries: the real modes + the practice mode (the last entry, index MODES.length)
+// 超理不尽モードは買った人にだけ ultra.js が届く（server/payments.js）。買っていないと MODES に無いので、
+// メニューには「鍵つき」の項目を出して、押したら購入画面(shop.js)を開く。
+const MODE_LOCKED = !MODES.some((m) => m.id === "ultra") && typeof Shop !== "undefined"
+    ? [{ id: "ultra-locked", label: "超理不尽モード", desc: "🔒 買い切り　タップで購入画面", color: "#c4f", locked: true, itemId: "ultra_mode" }]
+    : [];
 const MODE_MENU = [
     ...MODES,
+    ...MODE_LOCKED,
     {
         id: "practice",
         label: "練習モード",
@@ -121,7 +127,7 @@ const MODE_MENU = [
         color: "#6d6",
     },
 ];
-const PRACTICE_IDX = MODES.length;
+const PRACTICE_IDX = MODES.length + MODE_LOCKED.length;
 
 // practice screens (all x positions follow the screen center)
 // The practice screen has the real modes + the practice-only いろんな攻撃 category (VARIETY_MODE in config.js)
@@ -159,6 +165,10 @@ const rand = (a, b) => a + Math.random() * (b - a);
 // Mode select: apply the mode and start the run
 function chooseMode(i) {
     modeIdx = i;
+    if (MODE_MENU[i].locked) {
+        Shop.open(); // not bought yet: the shop (login / buy)
+        return;
+    }
     if (i === PRACTICE_IDX) {
         state = S.PRACT; // practice: pick the mode and the form first
         return;
@@ -251,7 +261,7 @@ function resetGame() {
     adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
     runStats = { hits: 0, hitFrames: [], movingFrames: 0, grazes: 0 };
-    betaReset(); // /beta: graze gauge, boss habit, viewer effects start over
+    betaReset(); // graze gauge, boss habit, viewer effects start over
     lastRun = null;
     runToken++;
     closeScore();
@@ -693,7 +703,7 @@ async function fetchScores(force = false, mode = boardMode) {
 
 // Called when a real game over / real CLEAR happens
 function finishRun(cleared) {
-    habitSave(); // /beta: the boss keeps what it learned
+    habitSave(); // the boss keeps what it learned
     if (cleared && !practice && !aiPlay) {
         loseStreak = 0; // the boss's "また君だ" lines start over after a win
         prevSurviveFrames = null;
@@ -1350,7 +1360,7 @@ const bossShot = (type, angle, speed, opts) =>
 const bossRing = (type, count, speed, offset, opts) =>
     ring(type, boss.x, boss.y + BOSS_MUZZLE_Y, count, speed, offset, opts);
 
-function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, warnVis }) {
+function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, follow = false, warnVis }) {
     beams.push({
         x,
         y,
@@ -1360,6 +1370,7 @@ function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, warn
         dur,
         w: width,
         refl: bounces,
+        fol: follow, // true: the warning line stays on the boss and is fixed the moment the beam is fired
         age: 0,
         warnVis: warnVis ?? warn,
     });
@@ -1490,7 +1501,7 @@ function takeOrb(id) {
     ORBS[id].apply();
 }
 
-/* ---- GAME OVER taunt (beta) ----
+/* ---- GAME OVER taunt ----
  *  The lines and their tags are in config.js (GAMEOVER_TAUNTS). Here we look at how the run went,
  *  turn that into a set of active tags, and pick one line by weight. */
 // how much an active tag raises the weight of a line (a line starts at 1)
@@ -1602,8 +1613,9 @@ function chooseGameOverTaunt() {
 function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
     Sound.se("hurt");
-    // 第4形態: 攻撃力UP (2倍ダメージ). いろんな攻撃(uniform)は全部の攻撃で被ダメージ一律(1)
-    const formDmg = fightForm() === 3 && !gameMode.uniform ? 2 : 1;
+    // 第4形態の被ダメージはモードごとに決まる（MODES の form4DmgMul。通常モードだけ2倍）。
+    // いろんな攻撃(uniform)は全部の攻撃で被ダメージ一律(1)なので、form4DmgMul を持たせない。
+    const formDmg = fightForm() === 3 ? (gameMode.form4DmgMul ?? 1) : 1;
     player.hp -= formDmg * dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
     runStats.hits++;
@@ -1725,6 +1737,10 @@ function updateBullets() {
 function updateBeams() {
     beams = beams.filter((b) => {
         b.age++;
+        if (b.fol && b.age <= b.warn) {
+            b.x = boss.x; // the warning line sticks to the boss ...
+            b.y = boss.y + BOSS_MUZZLE_Y; // ... and stops here when the beam comes out
+        }
         b.a += b.da;
         if (b.age > b.warn && b.age <= b.warn + b.dur) {
             const path = beamPath(b);
@@ -1806,7 +1822,7 @@ function checkBossDefeated() {
 }
 
 /* ============================================================================
- *  /beta 追加機能:  1. かすりゲージ   2. ボスが癖を覚える   3. 視聴者介入
+ *  追加機能:  1. かすりゲージ   2. ボスが癖を覚える   3. 視聴者介入
  *  設定値は config.js（GRAZE_* / HABIT_* / MEDDLE_* / VIEWER_TAUNTS）
  * ========================================================================== */
 let grazeGauge = 0; // 0 .. GRAZE_MAX
@@ -2060,7 +2076,7 @@ function updatePlay() {
     updateBeams();
     updateHazards();
     updateOrbs();
-    betaTick(); // /beta: graze power-up, boss habit, viewer effects
+    betaTick(); // graze power-up, boss habit, viewer effects
 
     checkBossDefeated();
 }
@@ -2376,7 +2392,11 @@ function drawField() {
             let stroke = "rgba(255,80,80,.5)";
             if (active) {
                 stroke = "#fff";
-            } else if (b.warnVis - b.age <= 15 && Math.floor(b.age / 4) % 2 === 0) {
+            } else if (
+                b.warnVis < b.warn && // 予告線が発射前に消えるビームだけ（消えずにそのまま撃つ従来のビームは点滅させない）
+                b.warnVis - b.age <= 15 &&
+                Math.floor(b.age / 4) % 2 === 0
+            ) {
                 stroke = "rgba(255,180,180,.8)"; // 予告線が消える合図(点滅)
             }
             ctx.strokeStyle = stroke;
@@ -2440,7 +2460,7 @@ function drawField() {
     if (player.inv % 6 < 3)
         drawPlayer(grazePower > 0 ? "#fd3" : dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
     drawFx();
-    drawDark(); // /beta: a viewer turned the lights off
+    drawDark(); // a viewer turned the lights off
 
     // HUD
     ctx.fillStyle = "#333";
@@ -2498,7 +2518,8 @@ function drawField() {
             "#f93",
             "right",
         );
-    drawBetaHud(); // /beta: graze gauge, boss speech
+    drawBetaHud(); // graze gauge, boss speech
+    if (typeof uDrawName === "function") uDrawName(); // 超理不尽モード: the name of the running attack (ultra.js)
 }
 
 // top 10 at the top of the title screen: "rank. name", the score, the time each form was defeated and the HP left
@@ -2944,7 +2965,7 @@ function drawOverlay() {
                 ctx.lineWidth = 2;
                 ctx.strokeRect(b.x, b.y, b.w, b.h);
                 drawText(
-                    m.label,
+                    m.tabLabel ?? m.label, // a mode with a long name has a short one for the tab
                     b.x + b.w / 2,
                     b.y + 25,
                     11,

@@ -214,6 +214,7 @@ async function createPgStore(url) {
     });
     return {
         kind: "postgres",
+        pool, // the shop (server/payments.js) uses the same database
         async top(mode, n) {
             const r = await pool.query(
                 "SELECT id, mode, name, form, cleared, form_ms, total_ms, splits, hp, score FROM scores WHERE mode = $1 ORDER BY score DESC, id ASC LIMIT $2",
@@ -351,7 +352,7 @@ function safeEqual(a, b) {
 }
 
 /* ---------- app ---------- */
-function createApp(store, rl) {
+function createApp(store, rl, payments) {
     const app = express();
     app.set("trust proxy", 1); // behind Render's proxy: req.ip is the real client
     app.disable("x-powered-by");
@@ -385,8 +386,18 @@ function createApp(store, rl) {
     app.get("/beta", (req, res) =>
         res.sendFile(path.join(BETA_DIR, "index.html")),
     ); // betaゲーム本体
+    // /beta でしか配信しないファイル（超理不尽モード）。/play の FILES には入れない
+    const BETA_ONLY_FILES = ["shop.js"]; // 誰にでも配る（ショップ画面）
+    // 買った人にだけ配るファイル（超理不尽モード）。買っていなければ 403。課金機能が無効なら常に 403（鍵はサーバーが持つ）
+    const BETA_LOCKED_FILES = { "ultra.js": "ultra_mode", "ultra-data.js": "ultra_mode" };
+    const lockedGate = (itemId) =>
+        payments ? payments.gate(itemId) : (req, res) => res.status(403).type("text/plain").send("locked");
+    for (const [f, itemId] of Object.entries(BETA_LOCKED_FILES))
+        app.get("/beta/" + f, lockedGate(itemId), (req, res) =>
+            res.sendFile(path.join(BETA_DIR, f)),
+        );
     // /beta/〇〇.js , /beta/style.css: beta/ にあればそちら、なければ public/ にフォールバック
-    for (const f of [...FILES, "style.css"]) {
+    for (const f of [...FILES, ...BETA_ONLY_FILES, "style.css"]) {
         app.get("/beta/" + f, (req, res) => {
             const betaFile = path.join(BETA_DIR, f);
             if (fs.existsSync(betaFile)) {
@@ -413,6 +424,8 @@ function createApp(store, rl) {
         }),
     );
 
+    // アカウント・ショップ・Stripe（server/payments.js）。ここで登録するだけ。課金が使えない設定でも、ゲームの動作には関係しない
+    if (payments) payments.register(app, { express, rateLimited });
     app.get("/api/scores", async (req, res) => {
         try {
             const mode = MODE_IDS.includes(req.query.mode)
@@ -571,6 +584,27 @@ function createApp(store, rl) {
     return app;
 }
 
+/* ---------- the shop: a failure here only turns the shop off, the game keeps running ---------- */
+async function initPayments(store) {
+    const { createPayments, createPgPaymentsStore, createMemoryPaymentsStore } = require("./payments.js");
+    let payStore = null;
+    try {
+        if (store.kind === "postgres") payStore = await createPgPaymentsStore(store.pool, process.env);
+        else if (process.env.PAYMENTS_MEMORY === "1") {
+            payStore = createMemoryPaymentsStore(process.env); // local development only: nothing is saved
+            console.warn("[payments] PAYMENTS_MEMORY=1: accounts and purchases live in memory only");
+        } else console.warn("[payments] no PostgreSQL: the shop is off and 超理不尽モード stays locked");
+    } catch (err) {
+        console.error("[payments] could not prepare the shop tables, the shop is OFF:", err.message);
+    }
+    const payments = createPayments({ store: payStore, env: process.env });
+    if (payStore && !payments.enabled)
+        console.warn("[payments] STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / PUBLIC_BASE_URL are not all set: accounts work, buying does not");
+    if (payments.enabled) console.log("[payments] shop is ON (" + payStore.kind + ")");
+    if (payments.free) console.warn("[payments] ULTRA_FREE_FOR_TESTING=1: EVERYONE can play 超理不尽モード. Never set this in production");
+    return payments;
+}
+
 async function main() {
     const url = process.env.DATABASE_URL;
     const store = url
@@ -585,7 +619,8 @@ async function main() {
         );
     const rl = createRlModel(store);
     await rl.init();
-    const server = createApp(store, rl).listen(PORT, () =>
+    const payments = await initPayments(store);
+    const server = createApp(store, rl, payments).listen(PORT, () =>
         console.log("listening on " + PORT + " (storage: " + store.kind + ")"),
     );
     // Render stops the old instance with SIGTERM on every deploy: save the shared boss first
@@ -604,6 +639,7 @@ if (require.main === module) {
     });
 }
 module.exports = {
+    initPayments,
     parseScore,
     createApp,
     createFileStore,

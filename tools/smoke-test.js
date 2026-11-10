@@ -7,6 +7,11 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const ROOT = path.join(__dirname, "..", "public");
+// node tools/smoke-test.js --beta : test /beta (files in public/beta/ first, the rest from public/ - like the server)
+const BETA = process.argv.includes("--beta") || process.argv.includes("--locked");
+// --locked: the player has not bought 超理不尽モード (the server does not send ultra.js): the menu shows a locked entry that opens the shop
+const LOCKED = process.argv.includes("--locked");
+const fileOf = (f) => (BETA && fs.existsSync(path.join(ROOT, "beta", f)) ? path.join(ROOT, "beta", f) : path.join(ROOT, f));
 
 function dummy() {
     const store = {};
@@ -40,7 +45,29 @@ const sandbox = {
 sandbox.window = sandbox;
 sandbox.self = sandbox;
 const ctx = vm.createContext(sandbox);
-for (const f of ["scoring.js", "config.js", "rl-pretrained.js", "rl.js", "net.js", "audio.js", "ai.js", "script.js"]) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
+// every script that index.html loads must be one the server hands out (server.js has a list: FILES / BETA_ONLY_FILES).
+// A file that is missing from the list is a 404 in the browser, and nothing here would notice.
+{
+    const server = fs.readFileSync(path.join(__dirname, "..", "server", "server.js"), "utf8");
+    const listOf = (name) => {
+        const m = server.match(new RegExp("const " + name + " = \\[([^\\]]*)\\]"));
+        return m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : [];
+    };
+    // BETA_LOCKED_FILES = { "ultra.js": "ultra_mode", ... } (only buyers get them, but they are served)
+    const lockedFiles = (server.match(/const BETA_LOCKED_FILES = \{([^}]*)\}/)?.[1].match(/"([^"]+)"\s*:/g) || []).map((s) => s.replace(/[":\s]/g, ""));
+    const served = { "/play": new Set(listOf("FILES")), "/beta": new Set([...listOf("FILES"), ...listOf("BETA_ONLY_FILES"), ...lockedFiles]) };
+    for (const [route, file] of [["/play", "index.html"], ["/beta", path.join("beta", "index.html")]]) {
+        const html = fs.readFileSync(path.join(ROOT, file), "utf8");
+        const scripts = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)].map((m) => path.basename(m[1]));
+        const missing = scripts.filter((f) => !served[route].has(f));
+        console.log((missing.length ? "FAIL" : "OK") + " " + route + ": every script of index.html is served by server.js" + (missing.length ? " (not served: " + missing.join(", ") + ")" : ""));
+        if (missing.length) process.exitCode = 1;
+    }
+}
+vm.runInContext("var __BETA = " + BETA + "; var __LOCKED = " + LOCKED + ";", ctx);
+if (LOCKED) vm.runInContext("var Shop = { opened: 0, open() { this.opened++; } };", ctx); // shop.js needs a real page: a stand-in
+const FILES = ["scoring.js", "config.js", "rl-pretrained.js", "rl.js", "net.js", "audio.js", "ai.js", ...(BETA && !LOCKED ? ["ultra-data.js", "ultra.js"] : []), "script.js"];
+for (const f of FILES) vm.runInContext(fs.readFileSync(fileOf(f), "utf8"), ctx, { filename: f });
 
 const t = vm.runInContext(`(function () {
     const log = [];
@@ -54,7 +81,9 @@ const t = vm.runInContext(`(function () {
     ok("ranking tabs: only hard + normal", RANKED_MODES.length === 2 && RANKED_MODES.every((m) => boards[m.id]));
     drawAll();
     state = S.MODE; drawAll();
-    ok("mode menu has 4 entries (hard, normal, rl, practice)", MODE_MENU.length === 4 && MODE_MENU[2].id === "rl");
+    if (__LOCKED) ok("locked: the menu has a locked 超理不尽モード before the practice mode", MODE_MENU.length === 5 && MODE_MENU[3].id === "ultra-locked" && MODE_MENU[3].locked && MODE_MENU[4].id === "practice" && PRACTICE_IDX === 4);
+    else if (__BETA) ok("mode menu has 5 entries (hard, normal, rl, ultra, practice)", MODE_MENU.length === 5 && MODE_MENU[2].id === "rl" && MODE_MENU[3].id === "ultra");
+    else ok("mode menu has 4 entries (hard, normal, rl, practice)", MODE_MENU.length === 4 && MODE_MENU[2].id === "rl");
 
     // choose the RL mode
     chooseMode(2);
@@ -240,6 +269,38 @@ const t = vm.runInContext(`(function () {
     ok("Q quits a practice to the form list", paused === false && state === S.PRACT && practice === false);
     resetGame(); chooseMode(1); setPaused(true); resetGame();
     ok("resetGame clears the pause", paused === false);
+
+    // not bought: the locked entry opens the shop and nothing else; the practice mode still works
+    if (__LOCKED) {
+        resetGame(); state = S.MODE;
+        chooseMode(3);
+        ok("locked: choosing it opens the shop and does not start a game", Shop.opened === 1 && state === S.MODE && gameMode.id !== "ultra");
+        drawAll();
+        chooseMode(PRACTICE_IDX);
+        ok("locked: the practice mode (the entry after the locked one) still opens", state === S.PRACT && PRACT_MODES.every((m) => m.id !== "ultra"));
+        drawAll();
+        chooseMode(0); resetGame();
+        ok("locked: a normal mode still starts", state === S.PLAY || gameMode.id === MODES[0].id);
+        resetGame();
+    }
+    // 超理不尽モード (/beta only, bought)
+    if (__BETA && !__LOCKED) {
+        const ui = MODES.findIndex((m) => m.id === "ultra");
+        resetGame(); chooseMode(ui);
+        ok("ultra mode: selected, 10 forms, not ranked", gameMode.id === "ultra" && state === S.PLAY && formCount() === 10 && !gameMode.ranked);
+        for (let i = 0; i < 900; i++) { player.inv = 1e9; update(); if (i % 60 === 0) draw(); }
+        ok("ultra mode runs 900 frames; the attack name is shown", state === S.PLAY && uShown.name !== "");
+        for (const f of [0, 4, 9]) {
+            practMode = ui; practForm = f; startPractice();
+            for (let i = 0; i < 500; i++) { player.inv = 1e9; update(); if (i % 100 === 0) draw(); }
+        }
+        ok("ultra practice (forms 1, 5, 10) runs", practice && gameMode.id === "ultra");
+        state = S.PRACT; practMode = ui; drawAll();
+        ok("practice tabs fit the screen (5 tabs)", PRACT_MODES.length === 5 && practTab(4).x + practTab(4).w <= W);
+        state = S.MODE; drawAll();
+        ok("mode buttons fit the screen (5 buttons)", modeBtn(4).y + modeBtn(4).h <= H);
+        resetGame();
+    }
 
     // reset of the learning
     RL.clear();

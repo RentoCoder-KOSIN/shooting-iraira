@@ -10,7 +10,8 @@
 - 弾幕シューティング（Canvas + 素のJS）。サーバーは Express（`server/server.js`）、ランキングは PostgreSQL。
 - `public/` = **/play**（本番）、`public/beta/` = **/beta**（実験用）。
   - `/beta` は `public/beta/` にあるファイルを優先し、無ければ `public/` にフォールバックする（`server/server.js`）。
-  - 今 `beta/` に実体があるのは `index.html` `script.js` `config.js` `scoring.js`。
+  - 今 `beta/` に実体があるのは `index.html` `script.js` `config.js` `scoring.js` と、超理不尽モードの `ultra.js` `ultra-data.js`（買った人にだけサーバーが配る）と、購入画面の `shop.js`
+    （読み込み順は `config.js` → `ultra-data.js` → `ultra.js` → `script.js`。`script.js` が起動時に `MODES` を検査するため）。
 - 読み込み順は `config.js` → `script.js`。`config.js` の中で `script.js` 側の変数（`CX` `boss` `player` など）を
   **定義時に**読むと ReferenceError になる。読むのは `run(t)` や geom のような**呼ばれた時**だけにする。
 
@@ -47,7 +48,11 @@
 | 目的 | コマンド |
 | --- | --- |
 | 構文チェック | `node --check public/script.js` / `node --check public/config.js` / beta も同様 |
-| 画面遷移で例外が出ないか | `node tools/smoke-test.js` |
+| 画面遷移で例外が出ないか | `node tools/smoke-test.js`（/beta は `--beta`） |
+| 超理不尽モードの全1000技（例外・予告0.7秒・数の上限） | `node tools/ultra-test.js` |
+| 課金（アカウント・Webhook・返金・鍵）のサーバー側 | `node tools/payments-test.js` |
+| 未購入のメニュー（鍵つき項目→購入画面） | `node tools/smoke-test.js --locked` |
+| 同・予告を見て動くボットで避けられるか | `node tools/ultra-test.js --oracle --form 3`（全形態で約45分。`--range 700-720` `--only 701` も可） |
 | サーバー起動確認 | `npm start`（`node server/server.js`） |
 | ボスの強さ（被弾率）の比較 | `node tools/train-rl.js base 5` / `eval 5` |
 
@@ -99,3 +104,10 @@
 - 何を変えたか（ファイル名と要点）／何を検証して何が通ったか／**確認できていないこと**／次にやること、の順に書く。
 - 変更ファイルが1つだけなら、zip にせず該当箇所の差分だけを示す。複数なら、変更したファイルだけを zip にまとめる（変更していないファイルは入れない）。
 - README.md の全文表示は不要。
+
+## 課金（超理不尽モード）で守ること
+- **お金が絡む。** `server/payments.js` `shop.js` `server/server.js` の課金まわりを変えるときは、必ず `node tools/payments-test.js` を通す。
+- アイテムの付与は、署名検証済みの Stripe Webhook（`completeCheckout`）だけ。ブラウザの戻りURLや、クライアントが送る金額・商品IDで付与や価格を決めない。
+- 購入履歴（`game_purchases` `stripe_events`）は **削除しない**。返金は状態を変える。
+- Stripe の鍵・`whsec_`・`ADMIN_PASSWORD` を、コード・ログ・コミットに書かない。`ULTRA_FREE_FOR_TESTING` を本番に設定しない。
+- 本番のDBを触る変更（表の追加・変更）、Stripe のキーの差し替え、`git push`（自動デプロイ）は、**人間に確認してから**。

@@ -1,5 +1,5 @@
 /* ============================================================================
- *  script.js - 世界一イライラするゲーム  (engine)
+ *  script.js - 世界一むずかしいゲームを作ろうとしたら理不尽なゲームができた  (engine)
  *
  *  Game loop, input, drawing. You rarely need to edit this file.
  *  All numbers / bullets / patterns / texts are in config.js (loaded before this file):
@@ -66,11 +66,13 @@ let shake = 0; // frames of screen shake left
 let bossFlash = 0; // frames the boss is drawn with a white flash (after being hit)
 let boss; // { x, y, hp, max }
 let bullets, beams, shots, orbs, queue, history;
+let hazards = []; // blast markers of the いろんな攻撃 patterns: { x, y, r, delay, life, age, done, burst } (see hazard())
 let gameMode = MODES[0]; // the chosen mode (see MODES in config.js)
 let modeIdx = 0; // highlighted entry on the mode select screen
 let practice = false; // true while playing in practice mode (never recorded)
 let practMode = 0; // practice screen: index in MODES
 let practForm = 0; // practice screen: highlighted form (0 = form 1)
+let practScroll = 0; // practice screen: the first form row that is shown (the いろんな攻撃 list is longer than the screen)
 let speedMul; // bullet speed multiplier (grows with some orbs)
 let dmgMul; // damage multiplier (green orb: 2, red orb: 3)
 let phase; // progress: the form you are on (0 .. formCount() - 1). Score and form changes use this
@@ -97,7 +99,7 @@ let lastRun; // the finished run: { mode, form, cleared, formMs, totalMs, splits
 let runToken = 0; // identifies the finished run (a restart cancels a pending name entry)
 let scoreOpen = false; // the name entry panel is open
 // --- GAME OVER taunt: what the boss says depends on how the player played (see chooseGameOverTaunt) ---
-let runStats = { hits: 0, hitFrames: [], movingFrames: 0 }; // this run: hits taken (run frame of each), frames the player moved
+let runStats = { hits: 0, hitFrames: [], movingFrames: 0, grazes: 0 }; // this run: hits taken (run frame of each), frames the player moved
 let loseStreak = 0; // losses in a row in this browser session (a real CLEAR resets it; practice / AI runs do not count)
 let prevSurviveFrames = null; // survival (frames) of the previous loss in the streak, null = none yet
 let recentTaunts = []; // the last few lines shown, so the same line does not come twice in a row
@@ -122,8 +124,32 @@ const MODE_MENU = [
 const PRACTICE_IDX = MODES.length;
 
 // practice screens (all x positions follow the screen center)
-const practTab = (i) => ({ x: CX - 150 + i * 102, y: 190, w: 96, h: 40 }); // mode tabs (3 modes)
-const practRow = (i) => ({ x: CX - 150, y: 246 + i * 44, w: 300, h: 40 }); // one row per form
+// The practice screen has the real modes + the practice-only いろんな攻撃 category (VARIETY_MODE in config.js)
+const PRACT_MODES = [...MODES, VARIETY_MODE];
+const PRACT_ROWS = 7; // form rows shown at once; a longer list scrolls (W/S, wheel, the arrows on the right)
+const practTab = (i) => ({ x: CX - 152 + i * 77, y: 190, w: 74, h: 40 }); // mode tabs (4 tabs)
+const practRow = (i) => ({ x: CX - 150, y: 246 + (i - practScroll) * 44, w: 300, h: 40 }); // one row per form
+const practRowShown = (i) => i >= practScroll && i < practScroll + PRACT_ROWS;
+const practArrow = (dir) => ({ x: CX + 156, y: dir < 0 ? 246 : 246 + (PRACT_ROWS - 1) * 44, w: 34, h: 40 }); // dir -1 = up, 1 = down
+const practCanScroll = () => PRACT_MODES[practMode].bossHp.length > PRACT_ROWS;
+// the arrows / the wheel scroll the list without moving the highlighted row
+function practClampScroll() {
+    const n = PRACT_MODES[practMode].bossHp.length;
+    practScroll = Math.max(0, Math.min(practScroll, Math.max(0, n - PRACT_ROWS)));
+}
+// keep the highlighted row (and the scroll position) inside the list
+function practFit() {
+    const n = PRACT_MODES[practMode].bossHp.length;
+    practForm = Math.max(0, Math.min(practForm, n - 1));
+    if (practForm < practScroll) practScroll = practForm;
+    if (practForm >= practScroll + PRACT_ROWS) practScroll = practForm - PRACT_ROWS + 1;
+    practScroll = Math.max(0, Math.min(practScroll, Math.max(0, n - PRACT_ROWS)));
+}
+// the name of a form on screen: 第◯形態 normally, #NN + the attack's name in いろんな攻撃
+const formLabel = (i, mode = gameMode) =>
+    mode.uniform
+        ? "#" + String(i + 1).padStart(2, "0") + " " + mode.formTitles[i]
+        : "第" + FORM_NAMES[i] + "形態";
 const practBack = () => ({ x: 10, y: 596, w: 90, h: 32 });
 const practRetryBtn = () => ({ x: CX - 150, y: 450, w: 140, h: 46 }); // after game over / practice clear
 const practMenuBtn = () => ({ x: CX + 10, y: 450, w: 140, h: 46 });
@@ -158,7 +184,7 @@ function startPractice() {
     syncAdminSliders();
     practice = true;
     modeIdx = practMode;
-    gameMode = MODES[practMode];
+    gameMode = PRACT_MODES[practMode];
     speedMul = gameMode.startSpeedMul;
     phase = practForm;
     boss.hp = boss.max = bossHpOf(phase);
@@ -166,7 +192,7 @@ function startPractice() {
     player.hp = playerMaxHp;
     // the orb selection only happens after a boss defeat: practicing form 2 starts with the original selection
     RL.reset();
-    if (phase === 1) enterSelect(false);
+    if (phase === 1 && !gameMode.uniform) enterSelect(false); // (いろんな攻撃 has no orbs)
     else state = S.PLAY;
 }
 // leave the practice and go back to the form list
@@ -201,6 +227,7 @@ function resetGame() {
     player = { x: PLAYER_START.x, y: PLAYER_START.y, hp: playerMaxHp, inv: 0 };
     bullets = [];
     beams = [];
+    hazards = [];
     shots = [];
     orbs = [];
     queue = [];
@@ -223,7 +250,8 @@ function resetGame() {
     invincible = false; // admin mode is NOT carried over to the next run
     adminInv.checked = false; // keep the admin panel checkbox in sync
     usedAdmin = false;
-    runStats = { hits: 0, hitFrames: [], movingFrames: 0 };
+    runStats = { hits: 0, hitFrames: [], movingFrames: 0, grazes: 0 };
+    betaReset(); // graze gauge, boss habit, viewer effects start over
     lastRun = null;
     runToken++;
     closeScore();
@@ -243,7 +271,7 @@ function checkConfig() {
         ...ORB_ORDER_PATTERN,
     ])
         if (!ORBS[id]) fail('unknown orb "' + id + '" (see ORBS)');
-    for (const m of MODES) {
+    for (const m of [...MODES, VARIETY_MODE]) {
         if (!m.bossHp || !m.sequences)
             fail('mode "' + m.id + '" needs bossHp and sequences');
         if (m.sequences.length !== m.bossHp.length)
@@ -256,7 +284,7 @@ function checkConfig() {
                     m.bossHp.length +
                     ") must have the same length",
             );
-        if (m.bossHp.length > FORM_NAMES.length)
+        if (!m.uniform && m.bossHp.length > FORM_NAMES.length)
             fail('FORM_NAMES is too short for mode "' + m.id + '"');
         for (const form of m.sequences)
             for (const step of form)
@@ -386,6 +414,9 @@ function showAdminView() {
     disarmReset();
     adminResetMsg.textContent = "";
     adminRlMsg.textContent = "";
+    adminDelMsg.textContent = "";
+    disarmDelete();
+    if (adminAuthed) loadDeleteList(); // the list of records that can be deleted one by one
     disarmRlReset();
     (adminAuthed ? adminInv : adminPass).focus();
 }
@@ -473,12 +504,106 @@ adminReset.addEventListener("click", async () => {
             normal: { rows: [], status: "ok", at: Date.now() },
         };
         adminResetMsg.textContent = "全スコアを削除しました";
+        delRows = []; // the list for deleting one record is empty now too
+        renderDeleteList();
     } catch (err) {
         adminResetMsg.textContent =
             "リセットできませんでした（" + (err.message || "error") + "）";
     }
     adminReset.disabled = false;
 });
+/* delete ONE ranking record: pick the mode, then press 削除 twice (second press within 4 s) */
+const adminDelMode = document.getElementById("admin-del-mode");
+const adminDelList = document.getElementById("admin-del-list");
+const adminDelMsg = document.getElementById("admin-del-msg");
+let delRows = []; // the rows shown in the list (each has the server's id)
+let delArmedId = null; // the record whose 削除 button was pressed once
+let delTimer = 0;
+function disarmDelete() {
+    delArmedId = null;
+    clearTimeout(delTimer);
+}
+function renderDeleteList() {
+    adminDelList.textContent = "";
+    if (!delRows.length) {
+        const li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = "記録がありません";
+        adminDelList.appendChild(li);
+        return;
+    }
+    delRows.forEach((r, i) => {
+        const li = document.createElement("li");
+        const rk = document.createElement("span");
+        rk.className = "rk";
+        rk.textContent = i + 1;
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = r.name; // textContent: a name can never be read as HTML
+        const sc = document.createElement("span");
+        sc.className = "sc";
+        sc.textContent = fmtScore(r.score);
+        const btn = document.createElement("button");
+        btn.textContent = delArmedId === r.id ? "本当に？" : "削除";
+        btn.addEventListener("click", () => onDeleteClick(r));
+        li.append(rk, nm, sc, btn);
+        adminDelList.appendChild(li);
+    });
+}
+async function loadDeleteList() {
+    if (!adminAuthed || !SCORE_ENABLED) return;
+    disarmDelete();
+    adminDelMsg.textContent = "読み込み中…";
+    try {
+        const res = await fetch(
+            SCORE_API + "/api/scores?mode=" + adminDelMode.value,
+        );
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        delRows = (await res.json()).scores;
+        renderDeleteList();
+        adminDelMsg.textContent = "";
+    } catch (err) {
+        adminDelMsg.textContent =
+            "一覧を読み込めませんでした（" + (err.message || "error") + "）";
+    }
+}
+async function onDeleteClick(row) {
+    if (delArmedId !== row.id) {
+        // first press: ask again; it is disarmed after 4 s
+        delArmedId = row.id;
+        clearTimeout(delTimer);
+        delTimer = setTimeout(() => {
+            disarmDelete();
+            renderDeleteList();
+        }, 4000);
+        renderDeleteList();
+        return;
+    }
+    disarmDelete();
+    const mode = adminDelMode.value;
+    adminDelMsg.textContent = "削除中…";
+    try {
+        const res = await fetch(SCORE_API + "/api/scores/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: adminPassUsed, mode, id: row.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        delRows = data.scores;
+        boards[mode] = { rows: data.scores, status: "ok", at: Date.now() }; // the title screen ranking too
+        renderDeleteList();
+        adminDelMsg.textContent = data.deleted
+            ? "削除しました"
+            : "すでに削除されていました";
+    } catch (err) {
+        renderDeleteList();
+        adminDelMsg.textContent =
+            "削除できませんでした（" + (err.message || "error") + "）";
+    }
+}
+adminDelMode.addEventListener("change", loadDeleteList);
+
 /* reset what the RLモード boss AI has learned (this browser + the shared one on the server): press twice (second press within 4 s) */
 const adminRlReset = document.getElementById("admin-rl-reset");
 const adminRlMsg = document.getElementById("admin-rl-msg");
@@ -568,6 +693,7 @@ async function fetchScores(force = false, mode = boardMode) {
 
 // Called when a real game over / real CLEAR happens
 function finishRun(cleared) {
+    habitSave(); // the boss keeps what it learned
     if (cleared && !practice && !aiPlay) {
         loseStreak = 0; // the boss's "また君だ" lines start over after a win
         prevSurviveFrames = null;
@@ -857,6 +983,7 @@ const inButton = (p, b) =>
 // Any key that is not a movement key: only the secret key heals (once)
 function onOtherKey(e) {
     if (aiPlay) return; // the AI is playing: a human key press must not heal it
+    if (gameMode.uniform) return; // いろんな攻撃: no secret-key heal (the HP is the same for every attack)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const IGNORED_KEYS = [
         "w",
@@ -950,6 +1077,7 @@ window.addEventListener("keydown", (e) => {
         openWatchList();
     if (state === S.WLIST && e.key === "Escape") state = S.TITLE;
     if (state === S.WATCH && e.key === "Escape") openWatchList();
+    if (state === S.WATCH && !e.repeat && ["1", "2", "3"].includes(e.key)) sendMeddle(+e.key - 1);
     if (state === S.TITLE && SCORE_ENABLED && !e.repeat) {
         const k = e.key.toLowerCase();
         // A / D / arrows / Tab: switch between the two rankings
@@ -982,14 +1110,15 @@ window.addEventListener("keydown", (e) => {
     }
     if (state === S.PRACT && !e.repeat) {
         const k = e.key.toLowerCase();
-        const n = () => MODES[practMode].bossHp.length;
-        if (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright") {
-            practMode = (practMode + 1) % MODES.length;
-            practForm = Math.min(practForm, n() - 1);
-        }
+        const n = () => PRACT_MODES[practMode].bossHp.length;
+        if (k === "a" || k === "arrowleft")
+            practMode = (practMode + PRACT_MODES.length - 1) % PRACT_MODES.length;
+        if (k === "d" || k === "arrowright")
+            practMode = (practMode + 1) % PRACT_MODES.length;
         if (k === "w" || k === "arrowup")
             practForm = (practForm + n() - 1) % n();
         if (k === "s" || k === "arrowdown") practForm = (practForm + 1) % n();
+        practFit();
         if (k === "escape") state = S.MODE;
     } else if (practice && e.key === "Escape") {
         exitPractice(); // Esc while practicing: back to the form list
@@ -1036,14 +1165,23 @@ canvas.addEventListener("click", (e) => {
             state = S.TITLE;
         }
     } else if (state === S.PRACT) {
-        MODES.forEach((_, i) => {
+        PRACT_MODES.forEach((_, i) => {
             if (inButton(p, practTab(i))) {
                 practMode = i;
-                practForm = Math.min(practForm, MODES[i].bossHp.length - 1);
+                practScroll = 0;
+                practFit();
             }
         });
-        MODES[practMode].bossHp.forEach((_, i) => {
-            if (inButton(p, practRow(i))) {
+        if (practCanScroll()) {
+            // the arrows move the shown part of the list by one row
+            for (const dir of [-1, 1])
+                if (inButton(p, practArrow(dir))) {
+                    practScroll += dir;
+                    practClampScroll();
+                }
+        }
+        PRACT_MODES[practMode].bossHp.forEach((_, i) => {
+            if (practRowShown(i) && inButton(p, practRow(i))) {
                 practForm = i;
                 startPractice();
             }
@@ -1066,6 +1204,10 @@ canvas.addEventListener("click", (e) => {
         if (inButton(p, watchBack())) state = S.TITLE;
     } else if (state === S.WATCH) {
         if (inButton(p, watchBack())) openWatchList();
+        else {
+            const i = MEDDLE_BUTTONS.findIndex((_, j) => inButton(p, meddleBtn(j)));
+            if (i >= 0) sendMeddle(i);
+        }
     } else if (state === S.TITLE && inButton(p, settingsBtn())) {
         openSettings();
     } else if (state === S.TITLE && inButton(p, aiBtn())) {
@@ -1133,6 +1275,18 @@ const endSetDrag = () => {
 canvas.addEventListener("pointerup", endSetDrag);
 canvas.addEventListener("pointercancel", endSetDrag);
 
+// practice screen: the mouse wheel scrolls a long list (いろんな攻撃)
+canvas.addEventListener(
+    "wheel",
+    (e) => {
+        if (state !== S.PRACT || !practCanScroll()) return;
+        e.preventDefault();
+        practScroll += e.deltaY > 0 ? 1 : -1;
+        practClampScroll();
+    },
+    { passive: false },
+);
+
 /* ---- helpers used by the patterns ---- */
 const aim = (x, y, target = player) => Math.atan2(target.y - y, target.x - x);
 const aimFromBoss = () => aim(boss.x, boss.y);
@@ -1196,7 +1350,7 @@ const bossShot = (type, angle, speed, opts) =>
 const bossRing = (type, count, speed, offset, opts) =>
     ring(type, boss.x, boss.y + BOSS_MUZZLE_Y, count, speed, offset, opts);
 
-function beam({ x, y, angle, turn = 0, warn, dur, width, bounces = 0, follow = false }) {
+function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, follow = false, warnVis }) {
     beams.push({
         x,
         y,
@@ -1208,6 +1362,25 @@ function beam({ x, y, angle, turn = 0, warn, dur, width, bounces = 0, follow = f
         refl: bounces,
         fol: follow, // true: the warning line stays on the boss and is fixed the moment the beam is fired
         age: 0,
+        warnVis: warnVis ?? warn,
+    });
+}
+
+// A blast marker (used by the いろんな攻撃 patterns): a circle that warns for `delay` frames, then bursts
+// (calls burst(h), which usually fires bullets) and hurts whoever is inside it for `life` more frames.
+function hazard({ x, y, r, delay, life, burst }) {
+    hazards.push({ x, y, r, delay, life, burst, age: 0, done: false });
+}
+function updateHazards() {
+    hazards = hazards.filter((h) => {
+        h.age++;
+        if (!h.done && h.age >= h.delay) {
+            h.done = true;
+            if (h.burst) h.burst(h);
+        }
+        if (h.done && Math.hypot(h.x - player.x, h.y - player.y) < h.r)
+            hurtPlayer();
+        return h.age < h.delay + h.life;
     });
 }
 
@@ -1357,9 +1530,12 @@ function tauntSituation() {
     const bossRatio = boss.max > 0 ? Math.max(0, boss.hp) / boss.max : 1;
     const movingRatio = runFrames > 0 ? runStats.movingFrames / runFrames : 0;
 
-    if (phase === 0 && !detour) tags.add("f1");
-    if (phase >= 2) tags.add("deep");
-    if (phase === last) tags.add("last");
+    if (!gameMode.uniform) {
+        // (いろんな攻撃: the attack number says nothing about how far the player got)
+        if (phase === 0 && !detour) tags.add("f1");
+        if (phase >= 2) tags.add("deep");
+        if (phase === last) tags.add("last");
+    }
     if (secs < 20) tags.add("instant");
     if (secs >= 120) tags.add("long");
     if (fakeCount > 0) tags.add("fake");
@@ -1427,7 +1603,10 @@ function chooseGameOverTaunt() {
 function hurtPlayer() {
     if (player.inv > 0 || invincible) return;
     Sound.se("hurt");
-    player.hp -= dmgMul;
+    // 第4形態の被ダメージはモードごとに決まる（MODES の form4DmgMul。通常モードだけ2倍）。
+    // いろんな攻撃(uniform)は全部の攻撃で被ダメージ一律(1)なので、form4DmgMul を持たせない。
+    const formDmg = fightForm() === 3 ? (gameMode.form4DmgMul ?? 1) : 1;
+    player.hp -= formDmg * dmgMul;
     player.inv = HURT_INVINCIBLE_FRAMES;
     runStats.hits++;
     runStats.hitFrames.push(runFrames);
@@ -1478,7 +1657,7 @@ function updateShots() {
             Math.abs(s.x - boss.x) < BOSS_HIT_HALF_W &&
             Math.abs(s.y - boss.y) < BOSS_HIT_HALF_H
         ) {
-            boss.hp -= attackMul; // 1 normally, more with the admin slider
+            boss.hp -= attackMul * (grazePower > 0 ? GRAZE_POWER_MUL : 1); // 1 normally, more with the admin slider / graze power-up
             bossFlash = 3;
             Sound.se("bossHit");
             burstFx(s.x, s.y, "#9ef", 2, 2.5, 10); // tiny sparks at the hit point
@@ -1535,8 +1714,12 @@ function updateBullets() {
         b.age++;
         b.x += b.vx * f;
         b.y += b.vy * f;
-        if (Math.hypot(b.x - player.x, b.y - player.y) < b.r + PLAYER_HIT_R)
-            hurtPlayer();
+        const d = Math.hypot(b.x - player.x, b.y - player.y);
+        if (d < b.r + PLAYER_HIT_R) hurtPlayer();
+        else if (!b.grazed && b.type !== "wall" && d < b.r + PLAYER_HIT_R + GRAZE_EXTRA_R) {
+            b.grazed = true; // a bullet counts once
+            addGraze(GRAZE_BULLET_PT);
+        }
         return b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < H + 20;
     });
 }
@@ -1551,13 +1734,17 @@ function updateBeams() {
         b.a += b.da;
         if (b.age > b.warn && b.age <= b.warn + b.dur) {
             const path = beamPath(b);
+            let near = false;
+            let hit = false;
             for (let i = 0; i < path.length - 1; i++) {
-                if (
-                    distToSegment(player.x, player.y, path[i], path[i + 1]) <
-                    b.w / 2 + PLAYER_HIT_R
-                )
+                const d = distToSegment(player.x, player.y, path[i], path[i + 1]);
+                const lim = b.w / 2 + PLAYER_HIT_R;
+                if (d < lim) {
+                    hit = true;
                     hurtPlayer();
+                } else if (d < lim + GRAZE_EXTRA_R) near = true;
             }
+            if (near && !hit) addGraze(GRAZE_BEAM_PT); // standing right next to a live beam
         }
         return b.age <= b.warn + b.dur;
     });
@@ -1567,6 +1754,12 @@ function updateOrbs() {
     orbs = orbs.filter((o) => {
         o.y += ORB_FALL_SPEED;
         if (Math.hypot(o.x - player.x, o.y - player.y) < ORB_PICK_R) {
+            if (o.fake) {
+                // a decoy sent by a viewer: a grey puff and nothing else
+                burstFx(o.x, o.y, "#889", 8, 2.5, 16);
+                saySpeech("偽物でしたｗ", 90);
+                return false;
+            }
             orbFx(o.x, o.y, ORBS[o.id].color);
             takeOrb(o.id);
             return false;
@@ -1586,6 +1779,7 @@ function checkBossDefeated() {
     Sound.se("bossDefeat");
     bullets = [];
     beams = [];
+    hazards = [];
     queue = [];
     orbs = [];
     patTime = 0;
@@ -1617,6 +1811,223 @@ function checkBossDefeated() {
     }
 }
 
+/* ============================================================================
+ *  追加機能:  1. かすりゲージ   2. ボスが癖を覚える   3. 視聴者介入
+ *  設定値は config.js（GRAZE_* / HABIT_* / MEDDLE_* / VIEWER_TAUNTS）
+ * ========================================================================== */
+let grazeGauge = 0; // 0 .. GRAZE_MAX
+let grazePower = 0; // frames left of the attack-up (0 = off)
+let speech = null; // the boss's speech bubble: { text, t } (t = frames left)
+let darkTimer = 0; // frames of darkness left (a viewer sent it)
+let lastMeddle = -1e9; // frame of the last viewer intervention that was applied
+let habitHeat = habitLoad(); // frames the player stayed in each screen cell (HABIT_COLS x HABIT_ROWS)
+let habitClock = 0; // frames of this run (used for the hunt timing)
+let habitNext = HABIT_FIRST; // habitClock at which the boss may hunt your favourite spot next
+let habitCount = 0; // hunts so far in this run (picks the line)
+let meddleMsg = null; // watch screen: the small message after pressing a button
+
+const HABIT_KEY = "iraira.beta.habit.v1";
+function habitLoad() {
+    try {
+        const a = JSON.parse(localStorage.getItem(HABIT_KEY));
+        if (Array.isArray(a) && a.length === HABIT_COLS * HABIT_ROWS && a.every(Number.isFinite)) return a;
+    } catch (_) {}
+    return Array(HABIT_COLS * HABIT_ROWS).fill(0);
+}
+function habitSave() {
+    try {
+        localStorage.setItem(HABIT_KEY, JSON.stringify(habitHeat.map((v) => Math.round(v * 10) / 10)));
+    } catch (_) {}
+}
+
+// every new run: the gauge and effects start over, and what the boss remembers from before counts half
+function betaReset() {
+    grazeGauge = 0;
+    grazePower = 0;
+    speech = null;
+    darkTimer = 0;
+    lastMeddle = -1e9;
+    habitHeat = habitHeat.map((v) => v * 0.5);
+    habitClock = 0;
+    habitNext = HABIT_FIRST;
+    habitCount = 0;
+}
+
+/* ---- 1. graze: the gauge fills when you slip past bullets / beams; full = nearby bullets vanish + attack up ---- */
+function addGraze(pt) {
+    if (state !== S.PLAY || player.inv > 0) return; // no points while invincible (standing in bullets is not skill)
+    runStats.grazes += pt;
+    grazeGauge += pt;
+    if (grazeGauge >= GRAZE_MAX) grazeBurst();
+}
+function grazeBurst() {
+    grazeGauge = 0;
+    grazePower = GRAZE_POWER_FRAMES;
+    // the orange wall stays (the attack order depends on it); everything else close to you is erased
+    bullets = bullets.filter(
+        (b) => b.type === "wall" || Math.hypot(b.x - player.x, b.y - player.y) > GRAZE_BLAST_R,
+    );
+    ringFx(player.x, player.y, "#fd3", GRAZE_BLAST_R, 26);
+    ringFx(player.x, player.y, "#fff", GRAZE_BLAST_R * 0.6, 18);
+    burstFx(player.x, player.y, "#fd3", 16, 4, 24);
+    Sound.se("decide");
+}
+
+/* ---- 2. habit: the boss learns where you like to stand, says so, and drops blast markers there ---- */
+const habitCell = (x, y) =>
+    Math.max(0, Math.min(HABIT_ROWS - 1, ((y / H) * HABIT_ROWS) | 0)) * HABIT_COLS +
+    Math.max(0, Math.min(HABIT_COLS - 1, ((x / W) * HABIT_COLS) | 0));
+const habitCenter = (i) => ({
+    x: (((i % HABIT_COLS) + 0.5) * W) / HABIT_COLS,
+    y: ((((i / HABIT_COLS) | 0) + 0.5) * H) / HABIT_ROWS,
+});
+// the cell you stay in most, or null while the boss has not seen enough / you do not favour one place
+function habitFavorite() {
+    let total = 0;
+    let best = 0;
+    let bi = 0;
+    habitHeat.forEach((v, i) => {
+        total += v;
+        if (v > best) {
+            best = v;
+            bi = i;
+        }
+    });
+    if (total < HABIT_MIN_TOTAL || best / total < HABIT_MIN_SHARE) return null;
+    return bi;
+}
+function habitHunt() {
+    // never on top of the orange wall or a live beam / blast: that was impossible to dodge before
+    if (bullets.some((b) => b.type === "wall") || beams.length || hazards.length) {
+        habitNext = habitClock + 90;
+        return;
+    }
+    const cell = habitFavorite();
+    if (cell === null) {
+        habitNext = habitClock + 300;
+        return;
+    }
+    const c = habitCenter(cell);
+    const cw = W / HABIT_COLS;
+    const ch = H / HABIT_ROWS;
+    const name = HABIT_NAMES[(cell / HABIT_COLS) | 0][cell % HABIT_COLS];
+    saySpeech(HABIT_LINES[habitCount++ % HABIT_LINES.length].replace("{n}", name), HABIT_SPEECH_FRAMES);
+    const spots = [
+        c,
+        { x: c.x - cw * 0.28, y: c.y + (Math.random() - 0.5) * ch * 0.5 },
+        { x: c.x + cw * 0.28, y: c.y + (Math.random() - 0.5) * ch * 0.5 },
+    ];
+    for (const q of spots) hazard({ x: q.x, y: q.y, r: 62, delay: HABIT_WARN, life: 20 });
+    habitNext = habitClock + HABIT_INTERVAL;
+}
+
+/* ---- 3. viewers: a spectator pressed a button (net.js -> here). Only while this run is being broadcast ---- */
+function meddleReceive(k, i) {
+    if (!isBroadcasting() || state !== S.PLAY || paused || adminOpen) return;
+    if (frame - lastMeddle < MEDDLE_PLAYER_GAP) return; // the server also limits this; this is the second lock
+    if (k === "fake") {
+        // decoy orbs that look like the real ones; picking one up does nothing
+        for (let n = 0; n < MEDDLE_FAKE_ORBS; n++)
+            orbs.push({
+                x: ORB_MARGIN_X + Math.random() * (W - ORB_MARGIN_X * 2),
+                y: -10 - n * 40,
+                id: pick(SELECT_ORBS),
+                fake: true,
+            });
+    } else if (k === "dark") darkTimer = MEDDLE_DARK_FRAMES;
+    else if (k === "taunt")
+        saySpeech(VIEWER_TAUNTS[Number.isInteger(i) ? Math.abs(i) % VIEWER_TAUNTS.length : 0], MEDDLE_SPEECH_FRAMES);
+    else return;
+    lastMeddle = frame;
+}
+if (typeof Net !== "undefined") Net.onMeddle = meddleReceive;
+
+// watch screen (spectator side): three buttons at the bottom of the picture
+const meddleBtn = (i) => {
+    const bw = (W - 40) / 3;
+    return { x: 20 + i * bw, y: H - 98, w: bw - 8, h: 34 };
+};
+function sendMeddle(i) {
+    const s = Net.snap;
+    if (!s || !s.mb || Net.endedAt) return; // only players of this build can receive it
+    const wait = Net.meddleReadyAt - Date.now();
+    if (wait > 0) {
+        meddleMsg = { text: "あと" + Math.ceil(wait / 1000) + "秒", until: Date.now() + 1200 };
+        return;
+    }
+    const k = MEDDLE_BUTTONS[i].k;
+    Net.meddle(k, k === "taunt" ? (Math.random() * VIEWER_TAUNTS.length) | 0 : 0);
+    meddleMsg = { text: MEDDLE_BUTTONS[i].label + "を送った！", until: Date.now() + 1500 };
+}
+
+function saySpeech(text, frames) {
+    speech = { text, t: frames };
+}
+
+// called every battle frame from updatePlay()
+function betaTick() {
+    if (grazePower > 0) grazePower--;
+    if (speech && --speech.t <= 0) speech = null;
+    if (darkTimer > 0) darkTimer--;
+    if (aiPlay) return; // the AI's moves do not teach the boss
+    habitClock++;
+    for (let i = 0; i < habitHeat.length; i++) habitHeat[i] *= HABIT_DECAY; // older stays fade away
+    habitHeat[habitCell(player.x, player.y)] += 1;
+    if (habitClock % 600 === 0) habitSave();
+    if (!practice && habitClock >= habitNext && fightForm() >= HABIT_FROM_FORM) habitHunt();
+}
+
+/* ---- drawing for the three features ---- */
+// speech bubble centred on x (used for the boss on your screen and on the spectators' screen)
+function drawBubble(text, x, y) {
+    const w = Math.min(W - 16, text.length * 14 + 28);
+    ctx.fillStyle = "rgba(0,0,0,.72)";
+    ctx.fillRect(x - w / 2, y - 20, w, 30);
+    ctx.strokeStyle = "rgba(255,255,255,.8)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - w / 2, y - 20, w, 30);
+    drawText(text, x, y, 14, "#fff");
+}
+// darkness: everything is covered except a circle around you
+function drawDark() {
+    if (darkTimer <= 0) return;
+    const a = 0.92 * Math.min(1, darkTimer / 15, (MEDDLE_DARK_FRAMES - darkTimer + 1) / 8);
+    const g = ctx.createRadialGradient(player.x, player.y, 40, player.x, player.y, 110);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0," + a + ")");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+}
+function drawBetaHud() {
+    // graze gauge above the hearts (while powered up it shows the time left instead)
+    const gx = 10;
+    const gy = H - 38;
+    const gw = 110;
+    const on = grazePower > 0;
+    ctx.fillStyle = "#222";
+    ctx.fillRect(gx, gy, gw, 6);
+    ctx.fillStyle = on ? "#fd3" : "#6cf";
+    ctx.fillRect(gx, gy, gw * (on ? grazePower / GRAZE_POWER_FRAMES : grazeGauge / GRAZE_MAX), 6);
+    drawText(on ? "POWER UP " + Math.ceil(grazePower / 60) + "秒" : "かすり", gx, gy - 4, 11, on ? "#fd3" : "#8ac", "left");
+    if (speech) drawBubble(speech.text, Math.max(60, Math.min(W - 60, boss.x)), boss.y + 56);
+}
+function drawMeddleButtons() {
+    const s = Net.snap;
+    if (!s || !s.mb || Net.endedAt) return;
+    const wait = Math.max(0, Net.meddleReadyAt - Date.now());
+    MEDDLE_BUTTONS.forEach((b, i) => {
+        const r = meddleBtn(i);
+        ctx.fillStyle = wait > 0 ? "#223" : "#2a3a66";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = wait > 0 ? "#445" : "#6af";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+        drawText(b.label + (wait > 0 ? "" : " (" + (i + 1) + ")"), r.x + r.w / 2, r.y + 22, 14, wait > 0 ? "#667" : "#cde");
+    });
+    drawText(wait > 0 ? "クールダウン あと" + Math.ceil(wait / 1000) + "秒" : "ボタンで邪魔を入れる", CX, H - 104, 11, "#889");
+    if (meddleMsg && Date.now() < meddleMsg.until) drawText(meddleMsg.text, CX, H - 128, 16, "#fc3");
+}
+
 function updatePlay() {
     runFrames++;
     formFrames++;
@@ -1637,6 +2048,7 @@ function updatePlay() {
     // From form 2: an orb falls at a fixed interval (fixed order, random position)
     if (
         phase >= ORB_DROP_FROM_FORM &&
+        !gameMode.uniform && // いろんな攻撃: no orbs
         frame % ORB_DROP_INTERVAL === ORB_DROP_OFFSET
     )
         spawnOrb(
@@ -1652,7 +2064,9 @@ function updatePlay() {
     runQueue();
     updateBullets();
     updateBeams();
+    updateHazards();
     updateOrbs();
+    betaTick(); // graze power-up, boss habit, viewer effects
 
     checkBossDefeated();
 }
@@ -1674,6 +2088,7 @@ function sceneBgm() {
             return ["select", "play"];
         case S.PLAY:
         case S.GAG:
+            if (gameMode.uniform) return ["form1", "play"]; // いろんな攻撃: the same BGM for every attack
             return ["form" + (fightForm() + 1), "play"]; // form1..form7, or play when that form has no BGM
         case S.FCLEAR: // the fake CLEAR
         case S.WIN:
@@ -1799,12 +2214,17 @@ function buildSnap() {
             Math.round(boss.max),
         ],
         g: [...groups.values()],
-        e: beams.map((b) => [
-            b.w,
-            b.age > b.warn ? 1 : 0,
-            beamPath(b).flat().map(Math.round),
-        ]),
+        e: beams
+            .filter((b) => b.age > b.warn || b.age <= b.warnVis)
+            .map((b) => [
+                b.w,
+                b.age > b.warn ? 1 : 0,
+                beamPath(b).flat().map(Math.round),
+            ]),
         sh: pts,
+        q: speech ? speech.text : "", // the boss's speech bubble
+        dk: darkTimer > 0 ? 1 : 0, // darkness from a viewer
+        mb: 1, // this build accepts viewer interventions (the watch screen shows the buttons)
         // on the selection screen the "orbs" are the choices (same positions as drawSelect)
         o:
             state === S.SELECT
@@ -1954,13 +2374,45 @@ function drawField() {
     // beams (warning line, then the real beam)
     for (const b of beams) {
         const active = b.age > b.warn;
+        if (active || b.age <= b.warnVis) {
+            ctx.beginPath();
+            beamPath(b).forEach((q, i) =>
+                i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]),
+            );
+            let stroke = "rgba(255,80,80,.5)";
+            if (active) {
+                stroke = "#fff";
+            } else if (
+                b.warnVis < b.warn && // 予告線が発射前に消えるビームだけ（消えずにそのまま撃つ従来のビームは点滅させない）
+                b.warnVis - b.age <= 15 &&
+                Math.floor(b.age / 4) % 2 === 0
+            ) {
+                stroke = "rgba(255,180,180,.8)"; // 予告線が消える合図(点滅)
+            }
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = active ? b.w : 2;
+            ctx.stroke();
+        }
+    }
+    // blast markers (いろんな攻撃): a warning circle that shrinks, then the red blast area
+    for (const h of hazards) {
         ctx.beginPath();
-        beamPath(b).forEach((q, i) =>
-            i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]),
-        );
-        ctx.strokeStyle = active ? "#fff" : "rgba(255,80,80,.5)";
-        ctx.lineWidth = active ? b.w : 2;
+        ctx.arc(h.x, h.y, h.r, 0, PI * 2);
+        if (h.done) {
+            ctx.fillStyle = "rgba(255,75,105,.28)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,75,105,.85)";
+        } else {
+            ctx.strokeStyle = "rgba(255,190,80,.65)";
+        }
+        ctx.lineWidth = 2;
         ctx.stroke();
+        if (!h.done) {
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, h.r * (1 - h.age / h.delay), 0, PI * 2);
+            ctx.strokeStyle = "rgba(255,220,120,.8)";
+            ctx.stroke();
+        }
     }
     // streaks behind the orange wall while it drops (one path per streak style, so it stays light)
     for (const [len, w, a] of [
@@ -1996,8 +2448,9 @@ function drawField() {
     ctx.fillStyle = "#9ef";
     shots.forEach((s) => ctx.fillRect(s.x - 1, s.y - 6, 3, 10));
     if (player.inv % 6 < 3)
-        drawPlayer(dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
+        drawPlayer(grazePower > 0 ? "#fd3" : dmgMul >= 3 ? "#f55" : dmgMul > 1 ? "#3c3" : "#4df");
     drawFx();
+    drawDark(); // a viewer turned the lights off
 
     // HUD
     ctx.fillStyle = "#333";
@@ -2006,11 +2459,13 @@ function drawField() {
     ctx.fillRect(10, 10, ((W - 20) * Math.max(0, boss.hp)) / boss.max, 8);
     const formTitle = gameMode.formTitles && gameMode.formTitles[fightForm()]; // 理不尽 forms 5-7 have a subtitle
     drawText(
-        "第" +
-            FORM_NAMES[fightForm()] +
-            "形態" +
-            (formTitle ? "「" + formTitle + "」" : "") +
-            (detour ? "（戻された）" : ""),
+        gameMode.uniform
+            ? formLabel(fightForm()) // いろんな攻撃: "#01 螺旋追跡網"
+            : "第" +
+                  FORM_NAMES[fightForm()] +
+                  "形態" +
+                  (formTitle ? "「" + formTitle + "」" : "") +
+                  (detour ? "（戻された）" : ""),
         10,
         36,
         14,
@@ -2053,6 +2508,7 @@ function drawField() {
             "#f93",
             "right",
         );
+    drawBetaHud(); // graze gauge, boss speech
 }
 
 // top 10 at the top of the title screen: "rank. name", the score, the time each form was defeated and the HP left
@@ -2148,9 +2604,10 @@ function drawRunResult(y1, y2) {
               fmtTime(lastRun.totalMs) +
               "　残り体力 " +
               lastRun.hp
-            : "第" +
-              FORM_NAMES[lastRun.form - 1] +
-              "形態　生存 " +
+            : (gameMode.uniform
+                  ? formLabel(lastRun.form - 1)
+                  : "第" + FORM_NAMES[lastRun.form - 1] + "形態") +
+              "　生存 " +
               fmtTime(lastRun.totalMs)) +
             (lastRun.score != null
                 ? "　スコア " + fmtScore(lastRun.score)
@@ -2313,6 +2770,11 @@ function drawWatch() {
             drawCircle(s.p[0], s.p[1], 9, col, false);
             drawCircle(s.p[0], s.p[1], PLAYER_HIT_R, "#fff");
         }
+        if (s.dk) {
+            ctx.fillStyle = "rgba(0,0,0,.6)"; // the player is in the dark right now
+            ctx.fillRect(0, 0, s.w, H);
+        }
+        if (s.q) drawBubble(s.q, Math.max(60, Math.min(s.w - 60, s.b[0])), s.b[1] + 56);
         ctx.restore();
         // HUD (boss HP, form, hearts)
         ctx.fillStyle = "#333";
@@ -2351,6 +2813,7 @@ function drawWatch() {
         12,
         "#6af",
     );
+    drawMeddleButtons();
     ctx.fillStyle = "#334";
     ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
     drawText("戻る (Esc)", bk.x + bk.w / 2, bk.y + 21, 12, "#ccd");
@@ -2372,12 +2835,13 @@ function drawOverlay() {
             ctx.font = "72px serif";
             ctx.textAlign = "center";
             ctx.fillText("👿", CX, 268);
-            drawText("世界一", CX, 323, 36, "#fff");
-            drawText("イライラするゲーム", CX, 368, 40, "#f55");
+            drawText("世界一むずかしいゲームを", CX, 312, 26, "#fff");
+            drawText("作ろうとしたら", CX, 342, 26, "#fff");
+            drawText("理不尽なゲームができた", CX, 388, 36, "#f55");
             drawText(
                 "難しいんじゃない。イライラするだけ。",
                 CX,
-                418,
+                426,
                 15,
                 "#889",
             );
@@ -2481,7 +2945,7 @@ function drawOverlay() {
                 14,
                 "#aab",
             );
-            MODES.forEach((m, i) => {
+            PRACT_MODES.forEach((m, i) => {
                 const b = practTab(i);
                 const sel = i === practMode;
                 ctx.fillStyle = sel ? m.color : "#2a2a3c";
@@ -2492,13 +2956,14 @@ function drawOverlay() {
                 drawText(
                     m.label,
                     b.x + b.w / 2,
-                    b.y + 26,
-                    13,
+                    b.y + 25,
+                    11,
                     sel ? "#000" : "#fff",
                 );
             });
-            const pm = MODES[practMode];
+            const pm = PRACT_MODES[practMode];
             pm.bossHp.forEach((hp, i) => {
+                if (!practRowShown(i)) return;
                 const b = practRow(i);
                 const sel = i === practForm;
                 ctx.fillStyle = sel ? pm.color : "#2a2a3c";
@@ -2508,23 +2973,53 @@ function drawOverlay() {
                 ctx.strokeRect(b.x, b.y, b.w, b.h);
                 const title = pm.formTitles && pm.formTitles[i];
                 drawText(
-                    "第" +
-                        FORM_NAMES[i] +
-                        "形態" +
-                        (title ? "「" + title + "」" : ""),
+                    pm.uniform
+                        ? formLabel(i, pm) // いろんな攻撃: "#01 螺旋追跡網"
+                        : "第" +
+                              FORM_NAMES[i] +
+                              "形態" +
+                              (title ? "「" + title + "」" : ""),
                     CX,
                     b.y + 26,
                     16,
                     sel ? "#000" : "#fff",
                 );
             });
+            if (practCanScroll()) {
+                // the list is longer than the screen: arrows on the right (▲ / ▼ gray when there is nothing more)
+                for (const dir of [-1, 1]) {
+                    const a = practArrow(dir);
+                    const more =
+                        dir < 0
+                            ? practScroll > 0
+                            : practScroll + PRACT_ROWS < pm.bossHp.length;
+                    ctx.fillStyle = more ? pm.color : "#2a2a3c";
+                    ctx.fillRect(a.x, a.y, a.w, a.h);
+                    drawText(dir < 0 ? "▲" : "▼", a.x + a.w / 2, a.y + 26, 16, more ? "#000" : "#667");
+                }
+                drawText(
+                    practForm + 1 + " / " + pm.bossHp.length,
+                    CX + 173,
+                    246 + (PRACT_ROWS * 44) / 2,
+                    11,
+                    "#889",
+                );
+            }
             drawText(
-                "A/D・←→ でモード切替　W/S・↑↓ で形態選択　Enter / タップで開始",
+                "A/D・←→ でモード切替　W/S・↑↓ で選択　Enter / タップで開始",
                 CX,
                 572,
                 12,
                 "#889",
             );
+            if (pm.uniform)
+                drawText(
+                    "体力・攻撃力は全部同じ（玉なし）",
+                    CX,
+                    588,
+                    11,
+                    "#fc4",
+                );
             const bk = practBack();
             ctx.fillStyle = "#334";
             ctx.fillRect(bk.x, bk.y, bk.w, bk.h);
