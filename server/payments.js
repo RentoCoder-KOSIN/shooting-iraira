@@ -33,7 +33,9 @@ const COOKIE = "sid";
 const NAME_RE = /^[\p{L}\p{N}_-]{3,20}$/u;
 const PASS_MIN = 8;
 const PASS_MAX = 128;
-const MIN_PRICE_JPY = 50; // the smallest amount Stripe accepts in JPY
+// Leave room for Stripe's USD settlement minimum ($0.50) after currency conversion.
+// The API's 50 JPY native minimum may be too low for accounts settling in USD.
+const MIN_PRICE_JPY = 100;
 // One-time access to a web game: streamed video game with conditional rights.
 const DEFAULT_PRODUCT_TAX_CODE = "txcd_10201004";
 const AUTH_LIMIT = { max: 10, windowMs: 60 * 1000 }; // per IP
@@ -607,6 +609,9 @@ function createPayments({ store, env = process.env, fetchImpl = globalThis.fetch
             const item = typeof itemId === "string" ? await store.getItem(itemId) : null;
             if (!item || !item.active) return res.status(404).json({ error: "商品が見つかりません" });
             if ((await store.ownedItemIds(user.id)).includes(item.id)) return res.status(409).json({ error: "購入済みです" });
+            if (!Number.isInteger(item.priceJpy) || item.priceJpy < MIN_PRICE_JPY) {
+                return res.status(400).json({ error: `この商品の価格では決済できません。${MIN_PRICE_JPY}円以上に設定してください。` });
+            }
             // the price is the server's: nothing the browser sends decides it
             const purchaseId = await store.createPurchase(user.id, item.id, item.priceJpy);
             const form = {
@@ -673,7 +678,7 @@ function createPayments({ store, env = process.env, fetchImpl = globalThis.fetch
         app.post("/api/admin/item", adminGuard, json, asyncRoute(async (req, res) => {
             if (!adminOk(req, res)) return;
             const { itemId, priceJpy, active } = req.body;
-            if (priceJpy != null && !(Number.isInteger(priceJpy) && priceJpy >= MIN_PRICE_JPY && priceJpy <= 1000000)) return res.status(400).json({ error: "bad price" });
+            if (priceJpy != null && !(Number.isInteger(priceJpy) && priceJpy >= MIN_PRICE_JPY && priceJpy <= 1000000)) return res.status(400).json({ error: `price must be between ${MIN_PRICE_JPY} and 1000000 JPY` });
             if (active != null && typeof active !== "boolean") return res.status(400).json({ error: "bad active" });
             const item = typeof itemId === "string" ? await store.updateItem(itemId, { priceJpy, active }) : null;
             if (!item) return res.status(404).json({ error: "item not found" });

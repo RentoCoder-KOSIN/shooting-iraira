@@ -186,9 +186,10 @@ Render の Web Service（`render.yaml`）。Build は `npm install`、Start は 
 5. 本番キーに替えるときは、キーと Webhook の `whsec_` の**両方**を本番のものにする。
 
 ### 管理API（`ADMIN_PASSWORD` を設定したときだけ。パスワードはリクエストの本文に入れる）
+価格は100円以上にしてください。Stripeアカウントの決済通貨がUSDの場合、50円では換算後にStripeの最低額を下回ることがあります。
 ```
 POST /api/admin/grant  { "password": "...", "username": "player1", "itemId": "ultra_mode" }   決済なしで付与（動作確認・プレゼント）
-POST /api/admin/item   { "password": "...", "itemId": "ultra_mode", "priceJpy": 800 }         価格の変更（50円以上）
+POST /api/admin/item   { "password": "...", "itemId": "ultra_mode", "priceJpy": 800 }         価格の変更（100円以上）
 POST /api/admin/item   { "password": "...", "itemId": "ultra_mode", "active": false }         販売停止
 ```
 

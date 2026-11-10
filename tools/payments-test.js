@@ -306,8 +306,8 @@ const gateStatus = async (t, cookie) => {
         ok("admin: a wrong password is 403", r.status === 403 && (await gateStatus(t, u.cookie)) === 403);
         r = await call(t.routes, "POST", "/api/admin/grant", { body: { password: "admin-pass", username: "player1", itemId: "ultra_mode" } });
         ok("admin: grant gives the item (recorded as a 0 yen purchase)", r.body.ok && (await gateStatus(t, u.cookie)) === 200 && t.store._purchases[0].amountJpy === 0);
-        r = await call(t.routes, "POST", "/api/admin/item", { body: { password: "admin-pass", itemId: "ultra_mode", priceJpy: 10 } });
-        ok("admin: a price under 50 yen is refused (Stripe's minimum)", r.status === 400);
+        r = await call(t.routes, "POST", "/api/admin/item", { body: { password: "admin-pass", itemId: "ultra_mode", priceJpy: 50 } });
+        ok("admin: a price under 100 yen is refused (allows for Stripe USD settlement minimum)", r.status === 400);
         r = await call(t.routes, "POST", "/api/admin/item", { body: { password: "admin-pass", itemId: "ultra_mode", priceJpy: 800 } });
         ok("admin: the price can be changed", r.body.item.priceJpy === 800 && (await call(t.routes, "GET", "/api/items", {})).body.items[0].priceJpy === 800);
         r = await call(t.routes, "POST", "/api/admin/item", { body: { password: "admin-pass", itemId: "ultra_mode", active: false } });
