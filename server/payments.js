@@ -34,6 +34,8 @@ const NAME_RE = /^[\p{L}\p{N}_-]{3,20}$/u;
 const PASS_MIN = 8;
 const PASS_MAX = 128;
 const MIN_PRICE_JPY = 50; // the smallest amount Stripe accepts in JPY
+// One-time access to a web game: streamed video game with conditional rights.
+const DEFAULT_PRODUCT_TAX_CODE = "txcd_10201004";
 const AUTH_LIMIT = { max: 10, windowMs: 60 * 1000 }; // per IP
 const CHECKOUT_LIMIT = { max: 8, windowMs: 60 * 1000 }; // per IP
 const WEBHOOK_TOLERANCE_S = 300;
@@ -624,6 +626,7 @@ function createPayments({ store, env = process.env, fetchImpl = globalThis.fetch
                 form["line_items[0][price_data][currency]"] = "jpy";
                 form["line_items[0][price_data][unit_amount]"] = item.priceJpy;
                 form["line_items[0][price_data][product_data][name]"] = item.name;
+                form["line_items[0][price_data][product_data][tax_code]"] = env.STRIPE_PRODUCT_TAX_CODE || DEFAULT_PRODUCT_TAX_CODE;
             }
             let session;
             try {

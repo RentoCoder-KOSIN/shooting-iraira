@@ -147,6 +147,7 @@ Render の Web Service（`render.yaml`）。Build は `npm install`、Start は 
 
 - アイテムを付与するのは **署名を検証した Webhook だけ**。ブラウザに戻ってきた(`?purchase=success`)だけでは付与しない。
 - 金額はサーバーのDB(`game_items`)で決まる。ブラウザが送った金額は使わない。
+- Stripeの商品税コードは `STRIPE_PRODUCT_TAX_CODE` で指定できる（既定 `txcd_10201004`: ストリーミング形式のビデオゲーム・条件付きアクセス）。Stripe Price を使う商品は、Stripe ダッシュボード側の商品にも税コードを設定する。
 - 購入履歴(`game_purchases`)は消さない。返金・チャージバックは状態を変えるだけ（アイテムは取り上げる）。
 - Stripe の設定や DB が欠けているときは、課金だけが止まる（超理不尽は鍵つきのまま）。ゲーム本体は動き続ける。
 

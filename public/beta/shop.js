@@ -10,9 +10,11 @@
  * ========================================================================== */
 const Shop = (() => {
     const ITEM_ID = "ultra_mode";
-    // 利用規約・プライバシーポリシー・特定商取引法に基づく表示のページができたら、ここに書く（表示される）。
-    // 例: [{ label: "利用規約", href: "/legal/terms.html" }]
-    const LEGAL_LINKS = [];
+    const LEGAL_LINKS = [
+        { label: "利用規約", href: "/legal/terms.html" },
+        { label: "プライバシーポリシー", href: "/legal/privacy.html" },
+        { label: "特定商取引法に基づく表記", href: "/legal/commerce.html" },
+    ];
 
     const state = { me: null, items: [], busy: false, message: "", tab: "login", waiting: false };
     let overlay = null;

@@ -371,6 +371,11 @@ function createApp(store, rl, payments) {
         "ai.js",
     ];
     app.get("/", (req, res) => res.sendFile(path.join(SITE_DIR, "index.html"))); // 紹介ページ
+    app.get("/legal/:page", (req, res, next) => {
+        const legalPages = new Set(["terms.html", "privacy.html", "commerce.html"]);
+        if (!legalPages.has(req.params.page)) return next();
+        res.sendFile(path.join(SITE_DIR, "legal", req.params.page));
+    });
     app.use((req, res, next) =>
         req.path === "/play/" ? res.redirect(301, "/play") : next(),
     ); // 末尾スラッシュだと相対パスが壊れるため
