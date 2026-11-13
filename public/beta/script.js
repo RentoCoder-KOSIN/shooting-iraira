@@ -405,6 +405,9 @@ const adminAtk = document.getElementById("admin-atk");
 const adminAtkVal = document.getElementById("admin-atk-val");
 const adminHp = document.getElementById("admin-hp");
 const adminHpVal = document.getElementById("admin-hp-val");
+const adminGrantUser = document.getElementById("admin-grant-user");
+const adminGrantButton = document.getElementById("admin-grant-button");
+const adminGrantMsg = document.getElementById("admin-grant-msg");
 const adminReset = document.getElementById("admin-reset");
 const adminResetMsg = document.getElementById("admin-reset-msg");
 let adminPassUsed = ""; // the password accepted at login (re-checked by the server on reset)
@@ -423,6 +426,7 @@ function showAdminView() {
     syncAdminSliders();
     disarmReset();
     adminResetMsg.textContent = "";
+    adminGrantMsg.textContent = "";
     adminRlMsg.textContent = "";
     adminDelMsg.textContent = "";
     disarmDelete();
@@ -456,6 +460,30 @@ adminPass.addEventListener("keydown", (e) => {
     if (e.key === "Enter") tryAdminLogin();
 });
 document.getElementById("admin-ok").addEventListener("click", tryAdminLogin);
+adminGrantButton.addEventListener("click", async () => {
+    if (!adminAuthed) return;
+    const username = adminGrantUser.value.trim();
+    if (!username) {
+        adminGrantMsg.textContent = "ユーザー名を入力してください";
+        return;
+    }
+    adminGrantButton.disabled = true;
+    adminGrantMsg.textContent = "付与中…";
+    try {
+        const res = await fetch(SCORE_API + "/api/admin/grant", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: adminPassUsed, username, itemId: "ultra_mode" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        adminGrantMsg.textContent = `${username} に超理不尽モードを付与しました`;
+    } catch (err) {
+        adminGrantMsg.textContent = "付与できませんでした: " + err.message;
+    } finally {
+        adminGrantButton.disabled = false;
+    }
+});
 // show the current slider values (attackMul / playerMaxHp) in the panel
 function syncAdminSliders() {
     adminAtk.value = attackMul;
@@ -1360,7 +1388,7 @@ const bossShot = (type, angle, speed, opts) =>
 const bossRing = (type, count, speed, offset, opts) =>
     ring(type, boss.x, boss.y + BOSS_MUZZLE_Y, count, speed, offset, opts);
 
-function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, follow = false, warnVis }) {
+function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, follow = false, warnVis, trackPlayer = false }) {
     beams.push({
         x,
         y,
@@ -1371,6 +1399,7 @@ function beam({ x, y, angle, turn = 0, warn = 240, dur, width, bounces = 0, foll
         w: width,
         refl: bounces,
         fol: follow, // true: the warning line stays on the boss and is fixed the moment the beam is fired
+        trackPlayer,
         age: 0,
         warnVis: warnVis ?? warn,
     });
@@ -1741,6 +1770,8 @@ function updateBeams() {
             b.x = boss.x; // the warning line sticks to the boss ...
             b.y = boss.y + BOSS_MUZZLE_Y; // ... and stops here when the beam comes out
         }
+        // Aimed beams follow the player's position during the warning, then lock on firing.
+        if (b.trackPlayer && b.age <= b.warn) b.a = aim(b.x, b.y);
         b.a += b.da;
         if (b.age > b.warn && b.age <= b.warn + b.dur) {
             const path = beamPath(b);

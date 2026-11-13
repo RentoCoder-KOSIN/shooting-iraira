@@ -435,9 +435,10 @@ function createPayments({ store, env = process.env, fetchImpl = globalThis.fetch
     // payments are on only when everything they need is there (and, in production, a database that keeps the data)
     // A memory store loses everything on a restart: with a LIVE key a customer could pay and lose the item. Never allow that.
     const memoryWithLiveKey = !!store && store.kind === "memory" && /^(sk|rk)_live_/.test(stripeKey || "");
-    const enabled = !!(store && stripeKey && webhookSecret && /^https?:\/\//.test(baseUrl)) && !memoryWithLiveKey;
+    const disabledForDebug = env.PAYMENTS_DISABLED === "1";
+    const enabled = !disabledForDebug && !!(store && stripeKey && webhookSecret && /^https?:\/\//.test(baseUrl)) && !memoryWithLiveKey;
     const adminPassword = env.ADMIN_PASSWORD || ""; // NOT the default of the ranking: the admin API stays shut until it is set
-    const free = env.ULTRA_FREE_FOR_TESTING === "1";
+    const free = disabledForDebug || env.ULTRA_FREE_FOR_TESTING === "1";
 
     /* ---- cookies / sessions ---- */
     const cookieOf = (req, name) => {

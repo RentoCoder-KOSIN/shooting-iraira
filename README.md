@@ -162,6 +162,7 @@ Render の Web Service（`render.yaml`）。Build は `npm install`、Start は 
 | `ADMIN_PASSWORD` | 管理者用。設定したときだけ `/api/admin/*` が使える。ランキングの既定値は使わない |
 | `ULTRA_PRICE_JPY` | 価格（円）。商品テーブルを**最初に作るときだけ**使う。既定 500。あとの変更は下の管理API |
 | `ULTRA_FREE_FOR_TESTING=1` | 誰でも遊べる（開発用）。**本番に付けない** |
+| `PAYMENTS_DISABLED=1` | Stripe決済を停止し、超理不尽モードを全員に開放（デバッグ用）。Renderでは一時的に有効。課金を戻すときは削除または `0` にする |
 | `PAYMENTS_MEMORY=1` | DBなしで課金を試す（開発用。再起動で消える） |
 
 ### 登録しようとすると「ただいまアカウントの登録・ログインを受け付けていません」と出るとき

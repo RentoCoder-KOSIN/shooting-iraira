@@ -136,6 +136,7 @@ function uBeam(g, o = {}) {
         dur: o.dur ?? 26,
         width: o.width ?? 22,
         bounces: o.bounces ?? 0,
+        trackPlayer: o.trackPlayer ?? false,
     });
     return beams[beams.length - 1];
 }
@@ -186,6 +187,16 @@ function uPredict(frames) {
         x: uClamp(player.x + vx * frames, 20, W - 20),
         y: uClamp(player.y + vy * frames, 60, H - 20),
     };
+}
+// Aim at the position the player is likely to reach while a bullet travels.
+function uAim(x, y, speed) {
+    const n = uTrail.length;
+    if (n < 12) return aim(x, y);
+    const a = uTrail[n - 11];
+    const vx = (player.x - a.x) / 10;
+    const vy = (player.y - a.y) / 10;
+    const travel = uClamp(Math.hypot(player.x - x, player.y - y) / Math.max(1, speed), 0, 36);
+    return Math.atan2(player.y + vy * travel - y, player.x + vx * travel - x);
 }
 // x positions the player visited recently (spread apart), for the "軌道記憶" attacks
 function uVisited(count) {
@@ -256,7 +267,7 @@ function dLine(S, c, t0) {
                 uBeam(uFromBoss(PI / 2 + sg * 0.34), { warn, turn: -sg * uLerp(0.0062, 0.0085, h), dur: 70, width: 20 });
             } else {
                 const ang = uClamp(aim(boss.x, boss.y + BOSS_MUZZLE_Y), 0.45, PI - 0.45);
-                const b = uBeam(uFromBoss(ang), { warn, bounces: c.has("reflect") ? 2 : 0, width: 18 });
+                const b = uBeam(uFromBoss(ang), { warn, bounces: c.has("reflect") ? 2 : 0, width: 18, trackPlayer: true });
                 if (b && c.has("homing")) tracked.push({ b, until: frame + warn - U_CUE });
             }
             if (c.has("split") && shape !== "S") {
@@ -409,7 +420,7 @@ function dOrb(S, c, t0) {
                 else if (c.has("record")) {
                     const p = uTrail[Math.max(0, uTrail.length - 1 - i * 14)] ?? player;
                     a = Math.atan2(p.y - m.y, p.x - m.x);
-                } else a = aim(m.x, m.y) + (i - (n - 1) / 2) * (c.has("reflect") ? 0.3 : uLerp(0.17, 0.12, h));
+                } else a = uAim(m.x, m.y, sp * base) + (i - (n - 1) / 2) * (c.has("reflect") ? 0.3 : uLerp(0.17, 0.12, h));
                 if (shape === "spiral" && Math.sin(a) < -0.2) a = -a; // keep most of them on the screen
                 orb(i, m.x, m.y, a, shape === "spiral" ? 0.85 : 1);
             });
@@ -547,7 +558,7 @@ function dHunt(S, c, t0) {
             const p = predicted ? uPredict(c.wn) : player;
             const m = uMuzzle();
             const ang = uClamp(Math.atan2(p.y - m.y, p.x - m.x), 0.35, PI - 0.35);
-            const b = uBeam(uFromBoss(ang), { warn: c.wn, width: Math.round(uLerp(18, 22, h)), bounces: c.has("reflect") ? 1 : 0 });
+            const b = uBeam(uFromBoss(ang), { warn: c.wn, width: Math.round(uLerp(18, 22, h)), bounces: c.has("reflect") ? 1 : 0, trackPlayer: true });
             if (b && c.has("split")) uBeam(uFromBoss(ang + (i % 2 ? 0.45 : -0.45)), { warn: c.wn + 28, width: 16 });
             if (b && c.has("delay")) uBeam(uFromBoss(ang), { warn: c.wn + 50, width: 18 }); // the same line again, later
             if (c.has("decoy")) uDecoy(uFromBoss(ang + uSign() * 0.4), { warn: c.wn });
