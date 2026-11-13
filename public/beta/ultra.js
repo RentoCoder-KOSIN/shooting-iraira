@@ -22,7 +22,7 @@
 const U_BEAM_CAP = 24;
 const U_BULLET_CAP = 340;
 const U_MIN_WARN = 42; // 0.7 s (the last forms)
-const U_DIFFICULTY = 1.25; // 1 = the first design. Scales how hard the forms are (all of the knobs below are uLerp(easy, hard, h))
+const U_DIFFICULTY = 1.4; // global difficulty multiplier: raises density, speed, and tighter patterns across every form
 const U_CUE = 24; // 0.4 s
 const U_DECOY_VIS = 30; // a decoy warning line blinks and vanishes after this many frames
 
@@ -659,7 +659,7 @@ function uContext(lv, mods, pass, passes, extra = {}) {
         passes,
         mir: pass === 1,
         wn: Math.max(U_MIN_WARN, Math.round(uLerp(62, 40, h)) - pass * 6),
-        sp: uLerp(2.9, 4.4, h),
+        sp: uLerp(2.9, 4.4, h) * 1.08,
         has: (tag) => set.has(tag),
         ...extra,
     };
@@ -818,7 +818,7 @@ function uFinale(form, k) {
 }
 
 /* ---- the mode ---- */
-const ULTRA_HP = [170, 200, 230, 260, 290, 320, 350, 380, 410, 450];
+const ULTRA_HP = [200, 230, 265, 300, 335, 370, 405, 440, 475, 520];
 const ULTRA_SLOTS = 5; // attacks between two 奥義
 const ULTRA_SEQUENCES = ULTRA_NAMES.map((_, form) => {
     const steps = [];
