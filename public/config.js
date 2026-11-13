@@ -1763,7 +1763,8 @@ const SEQUENCES = [
     [
         ["rep2", "home"],
         ["wall"], // no beam here: wall + beam was impossible to dodge
-        ["refl", "vbeam", "fake"],
+        ["refl", "fake"],
+        ["vbeam"], // the reflected beams and vertical/horizontal grid do not overlap
         ["orbs", "trail", "follow"],
         ["rot", "home", "orbs"], // no vbeam here: the rotating beam + the vertical beams were impossible to dodge
     ],
@@ -2073,11 +2074,17 @@ const VARIETY_ATTACKS = [
     {
         name: "左右クロスファイア",
         desc: "左右の射線が交差し、時間差で高さをずらす",
-        fire() {
-            for (let j = 0; j < 4; j++) {
-                const sy = (70 + j * 115) * (H / 560);
-                vAimed("v", 8, sy, 185 / 60);
-                vAimed("v", W - 8, H - sy, 185 / 60);
+        fire(n) {
+            // 8 bullets every 29 frames formed a dense cross at the player's launch position.
+            // Fire only every other beat and use two lanes per side; the player gets a clear
+            // movement window between crosses, while the alternating lanes keep the pattern varied.
+            if (n % 2 !== 0) return;
+            const first = ((n / 2) | 0) % 2;
+            for (let j = 0; j < 2; j++) {
+                const lane = first + j * 2;
+                const sy = (105 + lane * 145) * (H / 560);
+                vAimed("v", 8, sy, 165 / 60);
+                vAimed("v", W - 8, H - sy, 165 / 60);
             }
         },
     },
