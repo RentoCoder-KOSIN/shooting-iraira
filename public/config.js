@@ -352,6 +352,7 @@ const SEL_PICK = 24; // how close the player must be to pick one
 // ---- admin mode (Shift+@) ----
 // NOTE: this password is visible to anyone who opens the source. It is a toy lock, not security.
 const ADMIN_PASSWORD = "mint";
+const FULL_ADMIN_PASSWORD = "shooting-iraira-admin-mode";
 
 // ---- scoreboard (needs server.js; the ranking is shared by everyone) ----
 // A run is recorded when it ends: the form reached + the time spent in that form,

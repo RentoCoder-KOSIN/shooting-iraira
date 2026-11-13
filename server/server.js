@@ -48,7 +48,7 @@ const MIN_CLEAR_MS = { hard: 60 * 1000, normal: 30 * 1000 }; // a real CLEAR can
 const POST_LIMIT = { max: 6, windowMs: 60 * 1000 }; // per IP
 const RESET_LIMIT = { max: 5, windowMs: 60 * 1000 }; // per IP (admin password guessing)
 const RL_LIMIT = { max: 12, windowMs: 60 * 1000 }; // per IP: uploads of what the boss learned
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "mint"; // keep in sync with config.js unless the env var is set
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "shooting-iraira-admin-mode";
 
 /* ---------- 不適切ワードフィルター ---------- */
 // 日本語・英語の不適切表現（読み替え・変形もある程度カバー）

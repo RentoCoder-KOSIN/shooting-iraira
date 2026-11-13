@@ -159,7 +159,7 @@ Render の Web Service（`render.yaml`）。Build は `npm install`、Start は 
 | `STRIPE_SECRET_KEY` | `sk_test_...`（テスト）/ `sk_live_...`（本番）。**テストと本番で分ける** |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_...`（Stripe の Webhook エンドポイントごとに違う） |
 | `PUBLIC_BASE_URL` | 公開URL 例 `https://xxxx.onrender.com`（決済後の戻り先。末尾の `/` なし） |
-| `ADMIN_PASSWORD` | 管理者用。設定したときだけ `/api/admin/*` が使える。ランキングの既定値は使わない |
+| `ADMIN_PASSWORD` | 課金管理API用。`shooting-iraira-admin-mode` を設定すると、上位管理画面から課金アイテムを付与できる |
 | `ULTRA_PRICE_JPY` | 価格（円）。商品テーブルを**最初に作るときだけ**使う。既定 500。あとの変更は下の管理API |
 | `ULTRA_FREE_FOR_TESTING=1` | 誰でも遊べる（開発用）。**本番に付けない** |
 | `PAYMENTS_DISABLED=1` | Stripe決済を停止し、超理不尽モードを全員に開放（デバッグ用）。Renderでは一時的に有効。課金を戻すときは削除または `0` にする |
@@ -186,7 +186,10 @@ Render の Web Service（`render.yaml`）。Build は `npm install`、Start は 
 4. ダッシュボードで返金して、アイテムが取り上げられるのも確認する。
 5. 本番キーに替えるときは、キーと Webhook の `whsec_` の**両方**を本番のものにする。
 
-### 管理API（`ADMIN_PASSWORD` を設定したときだけ。パスワードはリクエストの本文に入れる）
+### 管理画面
+`Shift+@` で開きます。`mint` は無敵・攻撃倍率のみ、`shooting-iraira-admin-mode` はそれに加えて体力調整、スコアボード、AI学習、課金アイテム付与（beta）を使えます。課金アイテム付与にはサーバーの `ADMIN_PASSWORD` を `shooting-iraira-admin-mode` に設定してください。
+
+### 管理API（課金管理は `ADMIN_PASSWORD` を設定したときだけ。パスワードはリクエストの本文に入れる）
 価格は100円以上にしてください。Stripeアカウントの決済通貨がUSDの場合、50円では換算後にStripeの最低額を下回ることがあります。
 ```
 POST /api/admin/grant  { "password": "...", "username": "player1", "itemId": "ultra_mode" }   決済なしで付与（動作確認・プレゼント）

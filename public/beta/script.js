@@ -391,6 +391,7 @@ function quitFromPause() {
     else resetGame();
 }
 let adminAuthed = false; // stays true until the page is reloaded
+let fullAdminAuthed = false;
 let invincible = false; // admin: no damage
 let attackMul = 1; // admin: damage of each player shot to the boss (slider)
 let playerMaxHp = PLAYER_MAX_HP; // admin: max HP of the player (slider); also used by every heal
@@ -420,6 +421,7 @@ const isAdminShortcut = (e) => e.shiftKey && (e.key === "@" || e.key === "`");
 function showAdminView() {
     adminLogin.hidden = adminAuthed;
     adminPanel.hidden = !adminAuthed;
+    document.querySelectorAll(".full-admin-only").forEach((el) => { el.hidden = !fullAdminAuthed; });
     adminMsg.textContent = "";
     adminPass.value = "";
     adminInv.checked = invincible;
@@ -430,7 +432,7 @@ function showAdminView() {
     adminRlMsg.textContent = "";
     adminDelMsg.textContent = "";
     disarmDelete();
-    if (adminAuthed) loadDeleteList(); // the list of records that can be deleted one by one
+    if (fullAdminAuthed) loadDeleteList(); // the list of records that can be deleted one by one
     disarmRlReset();
     (adminAuthed ? adminInv : adminPass).focus();
 }
@@ -446,8 +448,9 @@ function closeAdmin() {
     if (document.activeElement) document.activeElement.blur();
 }
 function tryAdminLogin() {
-    if (adminPass.value === ADMIN_PASSWORD) {
+    if (adminPass.value === ADMIN_PASSWORD || adminPass.value === FULL_ADMIN_PASSWORD) {
         adminAuthed = true;
+        fullAdminAuthed = adminPass.value === FULL_ADMIN_PASSWORD;
         adminPassUsed = adminPass.value;
         showAdminView();
     } else {
@@ -461,7 +464,7 @@ adminPass.addEventListener("keydown", (e) => {
 });
 document.getElementById("admin-ok").addEventListener("click", tryAdminLogin);
 adminGrantButton.addEventListener("click", async () => {
-    if (!adminAuthed) return;
+    if (!fullAdminAuthed) return;
     const username = adminGrantUser.value.trim();
     if (!username) {
         adminGrantMsg.textContent = "ユーザー名を入力してください";
@@ -518,7 +521,7 @@ function disarmReset() {
     adminReset.disabled = false;
 }
 adminReset.addEventListener("click", async () => {
-    if (!adminAuthed) return;
+    if (!fullAdminAuthed) return;
     if (!resetArmed) {
         resetArmed = true;
         adminReset.textContent = "本当に全削除する？ もう一度押すと実行";
@@ -589,7 +592,7 @@ function renderDeleteList() {
     });
 }
 async function loadDeleteList() {
-    if (!adminAuthed || !SCORE_ENABLED) return;
+    if (!fullAdminAuthed || !SCORE_ENABLED) return;
     disarmDelete();
     adminDelMsg.textContent = "読み込み中…";
     try {
@@ -654,7 +657,7 @@ function disarmRlReset() {
     adminRlReset.textContent = RL_RESET_LABEL;
 }
 adminRlReset.addEventListener("click", () => {
-    if (!adminAuthed) return;
+    if (!fullAdminAuthed) return;
     if (!rlResetArmed) {
         rlResetArmed = true;
         adminRlReset.textContent = "本当にリセットする？ もう一度押すと実行";
