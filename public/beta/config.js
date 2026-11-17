@@ -1410,7 +1410,7 @@ const PATTERNS = {
                     x: player.x,
                     y: 0,
                     angle: PI / 2,
-                    warn: 48, // 0.8 seconds at 60 FPS
+                    warn: 18, // 0.3 seconds at 60 FPS
                     dur: 30,
                     width: 18,
                 });
