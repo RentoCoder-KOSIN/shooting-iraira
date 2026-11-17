@@ -551,14 +551,16 @@ function dNet(S, c, t0) {
 function dHunt(S, c, t0) {
     const h = c.h;
     const shots = Math.min(8, Math.round(uLerp(3, 6, h)) + (c.has("chain") ? 1 : 0)) - (c.light ? 1 : 0);
+    const aimDelay = 60; // mark the player's current position, then fire there one second later
     let t = t0;
     for (let i = 0; i < shots; i++) {
-        const predicted = c.has("record") || c.has("homing") || i > 0;
         S.at(t, () => {
-            const p = predicted ? uPredict(c.wn) : player;
+            // Lock the target position when the warning appears. The beam must not
+            // keep turning toward the player during its warning period.
+            const p = { x: player.x, y: player.y };
             const m = uMuzzle();
             const ang = uClamp(Math.atan2(p.y - m.y, p.x - m.x), 0.35, PI - 0.35);
-            const b = uBeam(uFromBoss(ang), { warn: c.wn, width: Math.round(uLerp(18, 22, h)), bounces: c.has("reflect") ? 1 : 0, trackPlayer: true });
+            const b = uBeam(uFromBoss(ang), { warn: aimDelay, width: Math.round(uLerp(18, 22, h)), bounces: c.has("reflect") ? 1 : 0 });
             if (b && c.has("split")) uBeam(uFromBoss(ang + (i % 2 ? 0.45 : -0.45)), { warn: c.wn + 28, width: 16 });
             if (b && c.has("delay")) uBeam(uFromBoss(ang), { warn: c.wn + 50, width: 18 }); // the same line again, later
             if (c.has("decoy")) uDecoy(uFromBoss(ang + uSign() * 0.4), { warn: c.wn });
