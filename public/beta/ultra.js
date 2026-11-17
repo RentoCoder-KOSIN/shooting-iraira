@@ -577,6 +577,11 @@ function dRow(S, c, t0) {
         S.at(t0 + k * period, () => {
             gap = gap === null ? uClamp(player.x + uSign() * 90, 90, W - 90) : uClamp(gap + uSign() * uRand(80, uLerp(115, 130, h)), 90, W - 90);
             const g = gap;
+            // Rows alternate between falling from the top and rising from the bottom.
+            // Keeping the same gap rule gives the player a readable lane from either side.
+            const fromBottom = k % 2 === 1;
+            const originY = fromBottom ? H + 8 : -8;
+            const direction = fromBottom ? -PI / 2 : PI / 2;
             const hole = uLerp(50, 40, h) + (c.has("decoy") ? 4 : 0);
             let i = 0;
             for (let x = 22; x < W; x += 34, i++) {
@@ -587,10 +592,10 @@ function dRow(S, c, t0) {
                     : c.has("stop")
                       ? [
                             { at: 40, act: "stop" },
-                            { at: 66, act: "go", ang: PI / 2, v: c.sp * 1.6 },
+                            { at: 66, act: "go", ang: direction, v: c.sp * 1.6 },
                         ]
                       : [];
-                uOrb("u", x, -8, PI / 2, c.sp * 0.95, { plan });
+                uOrb("u", x, originY, direction, c.sp * 0.95, { plan });
             }
         });
     }
