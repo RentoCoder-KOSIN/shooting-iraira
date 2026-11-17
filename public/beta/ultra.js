@@ -227,7 +227,6 @@ function dLine(S, c, t0) {
             : c.has("homing") || c.has("reflect")
               ? "B"
               : "V";
-    const tracked = [];
     let t = t0,
         lastX = null,
         side = uSign();
@@ -267,8 +266,9 @@ function dLine(S, c, t0) {
                 uBeam(uFromBoss(PI / 2 + sg * 0.34), { warn, turn: -sg * uLerp(0.0062, 0.0085, h), dur: 70, width: 20 });
             } else {
                 const ang = uClamp(aim(boss.x, boss.y + BOSS_MUZZLE_Y), 0.45, PI - 0.45);
-                const b = uBeam(uFromBoss(ang), { warn, bounces: c.has("reflect") ? 2 : 0, width: 18, trackPlayer: true });
-                if (b && c.has("homing")) tracked.push({ b, until: frame + warn - U_CUE });
+                // Aim at the player's current position when the warning appears, then keep
+                // that angle fixed so the warning gives them a real lane to leave through.
+                uBeam(uFromBoss(ang), { warn, bounces: c.has("reflect") ? 2 : 0, width: 18 });
             }
             if (c.has("split") && shape !== "S") {
                 // 分裂: two more lines from the same place, a little later
@@ -279,9 +279,6 @@ function dLine(S, c, t0) {
         });
         t += step;
     }
-    S.tick(() => {
-        for (const k of tracked) if (frame < k.until) k.b.a = aim(k.b.x, k.b.y); // 追尾: the line follows you, then locks (and glows)
-    });
     return t + c.wn + 40;
 }
 
