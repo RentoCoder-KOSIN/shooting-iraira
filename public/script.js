@@ -84,6 +84,7 @@ let selectMap = [...SELECT_ORBS]; // effect of each selection orb (shuffled at e
 let lastOrbSpawnFrame = -9999; // frame of the last orb that fell (see ORB_MIN_GAP)
 let lastOrbColor = null; // the last colour (SELECT_ORBS id) that fell from the sky: the base of the next selection
 let selectRandom = false; // false: the selection after form 1 (original behavior), true: the selections after form 2 and later
+let selectHover = -1; // orb currently under the mouse on the selection screen
 let fakeTimer, clearTimer, gagText, tauntText;
 let fakeCount; // purple orbs taken in this run (decides how long the fake game over lasts)
 let invertTimer; // frames left of reversed controls
@@ -1147,7 +1148,17 @@ canvas.addEventListener("click", (e) => {
         else if (inButton(p, pauseQuitBtn())) quitFromPause();
         return;
     }
-    if (state === S.FAKE) {
+    if (state === S.SELECT) {
+        const i = SELECT_ORBS.findIndex((_, n) => {
+            const q = selectOrbPos(n);
+            return Math.hypot(q.x - p.x, q.y - p.y) <= 36;
+        });
+        if (i >= 0) {
+            const q = selectOrbPos(i);
+            orbFx(q.x, q.y, ORBS[selectEffect(i)].color);
+            takeSelectOrb(selectEffect(i));
+        }
+    } else if (state === S.FAKE) {
         // pressing the fake RESTART button does NOT restart the run any more: it ends the fake game over right away
         if (inButton(p, BTN_FAKE_RESTART)) resetGame(); // update() then returns to the game (with the invincibility)
     } else if (state === S.GAG) {
@@ -1233,6 +1244,15 @@ canvas.addEventListener("click", (e) => {
     } else {
         advance();
     }
+});
+
+canvas.addEventListener("pointermove", (e) => {
+    if (state !== S.SELECT || e.pointerType !== "mouse") return;
+    const p = canvasPoint(e);
+    selectHover = SELECT_ORBS.findIndex((_, i) => {
+        const q = selectOrbPos(i);
+        return Math.hypot(q.x - p.x, q.y - p.y) <= 36;
+    });
 });
 
 // touch: drag to move the player
@@ -2329,13 +2349,140 @@ const fillScreen = (color) => {
 };
 
 function drawPlayer(color) {
-    drawCircle(player.x, player.y, 9, color, false);
-    drawCircle(player.x, player.y, PLAYER_HIT_R, "#fff");
+    const { x, y } = player;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 15);
+    ctx.lineTo(x + 11, y + 10);
+    ctx.lineTo(x, y + 6);
+    ctx.lineTo(x - 11, y + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    const hull = ctx.createLinearGradient(x - 8, y - 8, x + 8, y + 9);
+    hull.addColorStop(0, "#ffffff");
+    hull.addColorStop(0.28, color);
+    hull.addColorStop(1, "#25476d");
+    ctx.fillStyle = hull;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 13);
+    ctx.lineTo(x + 8, y + 9);
+    ctx.lineTo(x, y + 5);
+    ctx.lineTo(x - 8, y + 9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#e9fbff";
+    ctx.beginPath();
+    ctx.ellipse(x, y - 2, 2.5, 5, 0, 0, PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,255,255,.55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(x, y, PLAYER_HIT_R, 0, PI * 2);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawBackdrop() {
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#0a1022");
+    bg.addColorStop(0.52, "#101326");
+    bg.addColorStop(1, "#090b17");
+    fillScreen(bg);
+    const pulse = 0.5 + 0.5 * Math.sin(frame * 0.012);
+    const halo = ctx.createRadialGradient(CX, H * 0.37, 8, CX, H * 0.37, W * 0.72);
+    halo.addColorStop(0, `rgba(42,70,135,${0.10 + pulse * 0.035})`);
+    halo.addColorStop(1, "rgba(5,8,20,0)");
+    fillScreen(halo);
+    ctx.save();
+    for (let i = 0; i < 46; i++) {
+        const x = ((i * 173 + 37) % 997) / 997 * W;
+        const y = ((i * 269 + frame * (0.12 + (i % 3) * 0.05)) % H + H) % H;
+        const a = 0.18 + 0.3 * (0.5 + 0.5 * Math.sin(frame * 0.035 + i));
+        ctx.fillStyle = `rgba(174,205,255,${a})`;
+        ctx.fillRect(x, y, i % 7 === 0 ? 2 : 1, i % 7 === 0 ? 2 : 1);
+    }
+    ctx.restore();
+}
+
+function drawBoss() {
+    const { x, y } = boss;
+    const pulse = 1 + Math.sin(frame * 0.08) * 0.035;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(pulse, pulse);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.shadowColor = bossFlash > 0 ? "#fff" : "#f34d82";
+    ctx.shadowBlur = bossFlash > 0 ? 32 : 22;
+    ctx.fillStyle = bossFlash > 0 ? "#fff" : "#dc315f";
+    ctx.beginPath();
+    ctx.moveTo(-27, -11);
+    ctx.lineTo(-36, -34);
+    ctx.lineTo(-13, -23);
+    ctx.quadraticCurveTo(0, -32, 13, -23);
+    ctx.lineTo(36, -34);
+    ctx.lineTo(27, -11);
+    ctx.quadraticCurveTo(35, 18, 0, 29);
+    ctx.quadraticCurveTo(-35, 18, -27, -11);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    const face = ctx.createRadialGradient(-8, -11, 2, 0, 0, 31);
+    face.addColorStop(0, bossFlash > 0 ? "#fff" : "#ff8b9d");
+    face.addColorStop(0.45, bossFlash > 0 ? "#fff" : "#79294f");
+    face.addColorStop(1, "#21152e");
+    ctx.fillStyle = face;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 27, 29, 0, 0, PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff1ee";
+    ctx.beginPath();
+    ctx.ellipse(-10, -3, 5, 3, -0.2, 0, PI * 2);
+    ctx.ellipse(10, -3, 5, 3, 0.2, 0, PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ff395f";
+    ctx.beginPath();
+    ctx.arc(-10, -3, 2, 0, PI * 2);
+    ctx.arc(10, -3, 2, 0, PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,205,220,.7)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 3, 12, 0.25, Math.PI - 0.25);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawOrb(x, y, radius, color, highlight = false) {
+    const r = radius + (highlight ? 2 : 0);
+    const ball = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 1, x, y, r);
+    ball.addColorStop(0, "#ffffff");
+    ball.addColorStop(0.2, color);
+    ball.addColorStop(0.72, color);
+    ball.addColorStop(1, "#15182b");
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = highlight ? 22 : 12;
+    drawCircle(x, y, r, ball);
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    drawCircle(x, y, r + 4, color, false);
+    ctx.restore();
 }
 
 function drawSelect() {
-    drawText("好きな玉を選んでください", CX, 240, 24, "#fff");
-    drawText("WASDで移動", CX, 400, 16, "#889");
+    const glow = ctx.createLinearGradient(0, 0, 0, H);
+    glow.addColorStop(0, "#101a36");
+    glow.addColorStop(0.55, "#111326");
+    glow.addColorStop(1, "#090b15");
+    fillScreen(glow);
+    drawText("報酬を選ぶ", CX, 220, 28, "#fff");
+    drawText("玉をクリック / タップ、または移動して触れる", CX, 254, 15, "#9bb4d8");
     if (!selectRandom) {
         // legend of the selection after form 1 (effects can change later, so it stays vague)
         drawText(
@@ -2361,18 +2508,18 @@ function drawSelect() {
         );
     SELECT_ORBS.forEach((id, i) => {
         const q = selectOrbPos(i);
-        drawCircle(q.x, q.y, SEL_R, ORBS[id].color);
-        drawCircle(q.x, q.y, SEL_R + 5, ORBS[id].color + "8", false);
+        const hovered = i === selectHover;
+        const color = ORBS[id].color;
+        drawOrb(q.x, q.y, SEL_R, color, hovered);
+        drawText(ORBS[id].name + "玉", q.x, q.y + 48, 15, hovered ? "#fff" : "#c5cee0");
     });
     drawPlayer("#4df");
 }
 
 function drawField() {
+    drawBackdrop();
     // boss
-    if (bossFlash > 0) drawCircle(boss.x, boss.y, 30, "rgba(255,255,255,0.35)"); // flash when hit
-    ctx.font = "48px serif";
-    ctx.textAlign = "center";
-    ctx.fillText(state === S.FCLEAR ? "💀" : "👿", boss.x, boss.y + 16);
+    drawBoss();
 
     // beams (warning line, then the real beam)
     for (const b of beams) {
@@ -2438,14 +2585,15 @@ function drawField() {
     // bullets (faint while waiting)
     for (const b of bullets) {
         ctx.globalAlpha = b.delay > 0 ? 0.3 : 1;
+        drawCircle(b.x, b.y, b.r + 1.5, b.color, false);
         drawCircle(b.x, b.y, b.r, b.color);
+        drawCircle(b.x - b.r * 0.25, b.y - b.r * 0.25, Math.max(1, b.r * 0.22), "rgba(255,255,255,.72)");
         ctx.globalAlpha = 1;
     }
     // falling orbs
     for (const o of orbs) {
         const c = ORBS[o.id].color;
-        drawCircle(o.x, o.y, 12, c);
-        drawCircle(o.x, o.y, 17, c + "8", false);
+        drawOrb(o.x, o.y, 12, c, true);
     }
     // player shots and the player (blinks while invincible)
     ctx.fillStyle = "#9ef";

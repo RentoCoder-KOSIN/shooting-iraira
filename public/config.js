@@ -1405,12 +1405,13 @@ const PATTERNS = {
     beam: {
         duration: 260,
         run(t) {
-            if (t === 10 || t === 130)
+            // 自機の位置を記録してから約1秒予告し、その位置へ3連射する。
+            if (t === 10 || t === 70 || t === 130)
                 beam({
                     x: player.x,
                     y: 0,
                     angle: PI / 2,
-                    warn: 50,
+                    warn: 60,
                     dur: 30,
                     width: 18,
                 });
